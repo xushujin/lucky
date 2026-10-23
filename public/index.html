@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LUCKY · 现场抽奖系统</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23b93a2c'/><text x='16' y='23' font-size='19' text-anchor='middle' fill='white' font-family='serif'>幸</text></svg>">
+<style>
+  :root {
+    --paper: #f4f1ea;
+    --ink: #16171b;
+    --ink-2: #3e424a;
+    --muted: #7c8088;
+    --line: #e2ddd0;
+    --red: #b93a2c;
+    --gold: #b1843c;
+    --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-display: "Songti SC", "Noto Serif SC", "STSong", serif;
+    --font-num: "SF Pro Display", "Helvetica Neue", -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+    font-family: var(--font-sans); -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(70% 50% at 8% 0%, rgba(185,58,44,.10), transparent 60%),
+      radial-gradient(50% 40% at 100% 100%, rgba(177,132,60,.10), transparent 60%),
+      linear-gradient(rgba(22,23,27,.028) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(22,23,27,.028) 1px, transparent 1px);
+    background-size: auto, auto, 28px 28px, 28px 28px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 34px 28px 60px; }
+
+  .head { display: flex; align-items: center; gap: 12px; padding-bottom: 48px; }
+  .mark {
+    width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center;
+    background: linear-gradient(145deg, #d0503c, #8e241a); color: #fff;
+    font-family: var(--font-display); font-size: 20px;
+    box-shadow: 0 12px 26px -14px rgba(207,74,55,.9);
+  }
+  .head .bt { line-height: 1.25; }
+  .head .bt b { display: block; font-size: 16px; letter-spacing: .22em; font-weight: 600; }
+  .head .bt span { font-size: 10px; letter-spacing: .3em; color: #9a9488; text-transform: uppercase; }
+  .head .hr { margin-left: auto; display: flex; gap: 8px; }
+  .head .hr a {
+    font-size: 12.5px; color: var(--ink-2); text-decoration: none; padding: 7px 13px;
+    border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.6);
+  }
+  .head .hr a:hover { border-color: #cbbfa8; background: #fff; }
+
+  .hero { display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 48px; align-items: start; }
+  .eyebrow { font-size: 11px; letter-spacing: .34em; color: var(--gold); text-transform: uppercase; display: flex; align-items: center; gap: 10px; }
+  .eyebrow::before { content: ""; width: 28px; height: 1px; background: var(--gold); opacity: .6; }
+  h1 {
+    font-family: var(--font-display); font-size: clamp(38px, 5vw, 62px); line-height: 1.22;
+    margin: 20px 0 18px; letter-spacing: .01em; font-weight: 600;
+  }
+  h1 em {
+    font-style: normal; color: var(--red);
+    background: linear-gradient(transparent 64%, rgba(185,58,44,.14) 64%, rgba(185,58,44,.14) 90%, transparent 90%);
+  }
+  .lede { font-size: 14.5px; color: var(--ink-2); line-height: 1.95; max-width: 480px; margin: 0 0 32px; }
+
+  .cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px; height: 46px; padding: 0 22px;
+    border-radius: 11px; font-size: 14px; font-weight: 500; text-decoration: none;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    box-shadow: 0 2px 4px rgba(22,23,27,.04);
+  }
+  .btn:hover { border-color: #cfc3ab; }
+  .btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); box-shadow: 0 14px 30px -16px rgba(22,23,27,.7); }
+  .btn.primary:hover { background: #26282f; }
+  .btn.red { background: linear-gradient(180deg, #ce4b39, #a8301f); color: #fff; border-color: transparent; box-shadow: 0 14px 30px -16px rgba(168,48,31,.9); }
+  .btn svg { width: 16px; height: 16px; }
+
+  .statline { display: flex; gap: 44px; margin-top: 46px; padding-top: 26px; border-top: 1px solid var(--line); }
+  .statline div b { display: block; font-family: var(--font-num); font-size: 30px; font-weight: 600; letter-spacing: -.02em; }
+  .statline div span { font-size: 11px; color: var(--muted); letter-spacing: .1em; }
+
+  .panel {
+    background: rgba(255,255,255,.78); border: 1px solid var(--line); border-radius: 20px;
+    padding: 26px; backdrop-filter: blur(6px); box-shadow: 0 30px 60px -40px rgba(22,23,27,.4);
+  }
+  .panel .plabel { font-size: 10.5px; letter-spacing: .28em; color: var(--muted); text-transform: uppercase; }
+  .panel .pname { font-family: var(--font-display); font-size: 22px; margin: 8px 0 4px; line-height: 1.35; }
+  .panel .pmeta { font-size: 12px; color: var(--muted); }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #2b7357; margin-top: 10px; }
+  .status i { width: 6px; height: 6px; border-radius: 50%; background: #2b7357; animation: pl 1.8s infinite; }
+  @keyframes pl { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
+
+  .qr-wrap { display: flex; gap: 16px; align-items: center; margin: 22px 0 18px; padding: 16px; background: #fff; border: 1px solid var(--line); border-radius: 14px; }
+  .qr { width: 108px; height: 108px; flex: 0 0 auto; }
+  .qr svg { width: 100%; height: 100%; display: block; }
+  .code-big { font-family: "SF Mono", Menlo, monospace; font-size: 22px; letter-spacing: .18em; font-weight: 600; }
+  .qr-side .t1 { font-size: 11.5px; color: var(--muted); }
+  .qr-side .t2 { font-size: 11px; color: #a8a196; margin-top: 6px; line-height: 1.6; word-break: break-all; }
+
+  .pool { margin-top: 4px; }
+  .pool h4 { font-size: 10.5px; letter-spacing: .24em; color: var(--muted); font-weight: 500; margin: 0 0 8px; }
+  .pool-i { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px dashed #eee9dd; font-size: 12.5px; }
+  .pool-i:last-child { border-bottom: none; }
+  .pool-i .n { flex: 1; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pool-i .c { font-family: var(--font-num); font-weight: 600; color: var(--gold); font-variant-numeric: tabular-nums; }
+  .pool-i .c small { color: #b3aa99; font-weight: 400; font-size: 10.5px; }
+
+  .features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; margin-top: 64px; padding-top: 32px; border-top: 1px solid var(--line); }
+  .feat .fi { font-family: var(--font-display); font-size: 19px; color: var(--red); opacity: .75; }
+  .feat b { display: block; font-size: 13px; font-weight: 600; margin: 8px 0 4px; }
+  .feat p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.8; }
+
+  .foot { margin-top: 46px; display: flex; gap: 16px; align-items: center; font-size: 11.5px; color: #9c968a; }
+  .foot a { color: #7a7468; }
+
+  .empty-note { padding: 40px; text-align: center; }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; gap: 34px; }
+    .features { grid-template-columns: 1fr 1fr; }
+    .statline { gap: 28px; }
+    .head .hr { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <div class="mark">幸</div>
+    <div class="bt"><b>LUCKY</b><span>live draw system</span></div>
+    <div class="hr">
+      <a href="/import">名单与奖项</a>
+      <a href="/reports">历史报表</a>
+      <a href="/settings">系统设置</a>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="empty-note muted">正在载入…</div>
+  </main>
+
+  <div class="features">
+    <div class="feat">
+      <div class="fi">壹</div>
+      <b>身份核验</b>
+      <p>姓名 + 证件后四位验证通过后，才进入抽奖池，杜绝冒领。</p>
+    </div>
+    <div class="feat">
+      <div class="fi">贰</div>
+      <b>库存控奖</b>
+      <p>名额按奖项库存严格扣减，超发会被系统拒绝。</p>
+    </div>
+    <div class="feat">
+      <div class="fi">叁</div>
+      <b>实时同步</b>
+      <p>手机刮卡与大屏揭晓同步发生，现场气氛即时点燃。</p>
+    </div>
+    <div class="feat">
+      <div class="fi">肆</div>
+      <b>结果留档</b>
+      <p>轮次、凭证、操作日志完整可追溯，一键导出 Excel。</p>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>LUCKY 现场抽奖系统</span>
+    <span>·</span>
+    <span>适用于年会 / 门店促销 / 发布会</span>
+  </div>
+</div>
+
+<script src="/assets/qrcode.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+
+  async function load() {
+    try {
+      const boot = await LK.get('/api/bootstrap');
+      LK.state.boot = boot;
+      LK.state.activityId = boot.currentActivityId;
+      const cur = boot.current;
+
+      if (!boot.activities.length) {
+        $('#main').innerHTML = `
+          <div class="panel" style="max-width:520px">
+            <div class="plabel">Get started</div>
+            <div class="pname">还没有活动</div>
+            <div class="pmeta">创建第一个活动，导入名单与奖项后即可开始现场抽奖。</div>
+            <div class="cta-row" style="margin-top:22px">
+              <button class="btn primary" id="createBtn">创建活动</button>
+            </div>
+          </div>`;
+        $('#createBtn').onclick = async () => {
+          const created = await LK.createActivityFlow();
+          if (created) {
+            await LK.post(`/api/activities/${created.id}/current`);
+            location.reload();
+          }
+        };
+        return;
+      }
+
+      const act = cur.activity;
+      const joinUrl = LK.joinUrl(act.code);
+      const live = act.status === 'live';
+
+      $('#main').innerHTML = `
+        <div class="hero">
+          <section>
+            <div class="eyebrow">Live draw · 现场抽奖</div>
+            <h1>让每一次揭晓，<br>都值得<em>欢呼</em>。</h1>
+            <p class="lede">扫码验证身份，主持人控场开奖，参与者刮开卡片，大屏同步见证。<br>从名单到结果，全流程留档可追溯。</p>
+            <div class="cta-row">
+              <a class="btn primary" href="/host">${LK.icon('mic')} 进入主持人台</a>
+              <a class="btn" href="/screen" target="_blank">${LK.icon('monitor')} 打开现场大屏</a>
+              <a class="btn" href="${joinUrl}">${LK.icon('qr')} 参与者入口</a>
+            </div>
+            <div class="statline">
+              <div><b>${cur.stats.totalParticipants}</b><span>参与名单</span></div>
+              <div><b>${cur.stats.verifiedCount}</b><span>已通过验证</span></div>
+              <div><b>${cur.stats.winners}</b><span>已产生中奖</span></div>
+            </div>
+          </section>
+
+          <aside class="panel">
+            <div class="plabel">Current event</div>
+            <div class="pname">${LK.esc(act.name)}</div>
+            <div class="pmeta">活动码 ${act.code}${cur.round ? ` · 第 ${cur.round.seq} 轮进行中` : ''}</div>
+            <div class="status" style="color:${live ? '#2b7357' : '#9a7b3f'}"><i style="background:currentColor"></i>${LK.STATUS_TEXT[act.status]}</div>
+
+            <div class="qr-wrap">
+              <div class="qr">${LK.qrSvg(joinUrl)}</div>
+              <div class="qr-side">
+                <div class="t1">扫码参与抽奖</div>
+                <div class="code-big">${act.code}</div>
+                <div class="t2">姓名 + 证件后四位验证</div>
+              </div>
+            </div>
+
+            <div class="pool">
+              <h4>Prize pool · 奖池</h4>
+              ${cur.prizes.map((p) => `<div class="pool-i"><span class="n">${LK.esc(p.name)}</span><span class="c">${p.remaining}<small> / ${p.total}</small></span></div>`).join('') || '<div class="t2">尚未配置奖项</div>'}
+            </div>
+          </aside>
+        </div>`;
+    } catch (err) {
+      $('#main').innerHTML = `<div class="panel"><div class="pname">加载失败</div><div class="pmeta">${LK.esc(err.message)}</div></div>`;
+    }
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

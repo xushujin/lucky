@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>历史报表 · LUCKY</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23b93a2c'/><text x='16' y='23' font-size='19' text-anchor='middle' fill='white' font-family='serif'>幸</text></svg>">
+<link rel="stylesheet" href="/assets/app.css">
+<style>
+  .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .filter-bar .select, .filter-bar .input { height: 34px; width: auto; min-width: 130px; }
+  .print-head { display: none; }
+  .status-pending { color: #9a7b3f; }
+  .status-revealed { color: #2b7357; }
+  .status-void { color: #9b9b9b; text-decoration: line-through; }
+  @media print {
+    .sidebar, .topbar, .filter-bar, .tabs, .no-print { display: none !important; }
+    .print-head { display: block; margin-bottom: 18px; }
+    .print-head h1 { font-size: 20px; margin: 0 0 4px; }
+    .print-head p { font-size: 11px; color: #666; margin: 0; }
+    .stat { break-inside: avoid; }
+    .card { break-inside: auto; }
+    table.tbl th { background: #f6f6f6 !important; }
+    table.tbl td, table.tbl th { font-size: 10px; padding: 6px 8px; }
+    .page { padding: 0 !important; }
+    @page { margin: 14mm; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+    <div class="page" id="page"><div class="empty">正在载入…</div></div>
+  </div>
+</div>
+
+<script src="/assets/app.js"></script>
+<script>
+(function () {
+  let snap = null;
+  let tab = 'awards';
+  let filterPrize = '';
+  let filterStatus = '';
+  let filterRound = '';
+  let keyword = '';
+
+  const $ = (s) => document.querySelector(s);
+
+  async function load() {
+    snap = await LK.get(`/api/activities/${LK.state.activityId}/snapshot`);
+    render();
+  }
+
+  const statusText = { pending: '待揭晓', revealed: '已揭晓', void: '已作废' };
+  const sourceText = { draw: '系统抽取', manual: '人工补发', redraw: '异常补抽' };
+
+  function filteredAwards() {
+    return snap.awards.filter((w) => {
+      if (filterRound && w.roundId !== filterRound) return false;
+      if (filterPrize && w.prizeId !== filterPrize) return false;
+      if (filterStatus && w.status !== filterStatus) return false;
+      if (keyword) {
+        const q = keyword.toLowerCase();
+        if (!`${w.participantName} ${w.participantDept || ''} ${w.prizeName}`.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
+  function render() {
+    const tb = $('#topbar');
+    LK.mountShell({ active: 'reports', title: '历史报表', sub: '', actions: '' });
+    tb.innerHTML = `
+      <div><h1>历史报表</h1><div class="sub">${LK.esc(snap.activity.name)} · 全部轮次与中奖记录留档</div></div>
+      <div class="topbar-actions">
+        <a class="btn btn-sm" href="/claim" target="_blank">${LK.icon('file', 14)} 领奖登记表</a>
+        <button class="btn btn-sm" data-act="print">${LK.icon('file', 14)} 打印 / PDF</button>
+        <button class="btn btn-sm btn-primary" data-act="export">${LK.icon('download', 14)} 导出 Excel</button>
+      </div>`;
+
+    const s = snap.stats;
+    const rate = s.totalParticipants ? ((s.uniqueWinners / s.totalParticipants) * 100).toFixed(1) : '0.0';
+
+    $('#page').innerHTML = `
+      <div class="print-head">
+        <h1>${LK.esc(snap.activity.name)} · 抽奖结果报表</h1>
+        <p>活动码 ${snap.activity.code}　导出时间 ${LK.fmtFull(Date.now())}　共 ${s.totalAwards} 份发奖记录</p>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat"><div class="k">参与人数</div><div class="v">${s.totalParticipants}<small>人</small></div><div class="d">已验证 ${s.verifiedCount} 人</div></div>
+        <div class="stat"><div class="k">中奖人数</div><div class="v">${s.uniqueWinners}<small>人</small></div><div class="d">中奖率 ${rate}%</div></div>
+        <div class="stat"><div class="k">发放份数</div><div class="v">${s.totalAwards}<small>份</small></div><div class="d">已揭晓 ${s.revealedAwards} 份</div></div>
+        <div class="stat accent"><div class="k">异常记录</div><div class="v">${s.voidedAwards}<small>条</small></div><div class="d">${s.pendingAwards} 份待揭晓</div></div>
+      </div>
+
+      <div class="tabs no-print" style="margin-bottom:16px">
+        <button data-tab="awards" class="${tab === 'awards' ? 'active' : ''}">中奖记录</button>
+        <button data-tab="rounds" class="${tab === 'rounds' ? 'active' : ''}">轮次明细</button>
+        <button data-tab="logs" class="${tab === 'logs' ? 'active' : ''}">操作日志</button>
+      </div>
+
+      ${tab === 'awards' ? awardsView() : tab === 'rounds' ? roundsView() : logsView()}
+    `;
+  }
+
+  function awardsView() {
+    const list = filteredAwards();
+    return `
+      <div class="filter-bar no-print">
+        <select class="select" id="fRound">
+          <option value="">全部轮次</option>
+          ${snap.rounds.map((r) => `<option value="${r.id}" ${filterRound === r.id ? 'selected' : ''}>第 ${r.seq} 轮 · ${LK.esc(r.prizeName)}</option>`).join('')}
+        </select>
+        <select class="select" id="fPrize">
+          <option value="">全部奖项</option>
+          ${snap.prizes.map((p) => `<option value="${p.id}" ${filterPrize === p.id ? 'selected' : ''}>${LK.esc(p.name)}</option>`).join('')}
+        </select>
+        <select class="select" id="fStatus">
+          <option value="">全部状态</option>
+          <option value="revealed" ${filterStatus === 'revealed' ? 'selected' : ''}>已揭晓</option>
+          <option value="pending" ${filterStatus === 'pending' ? 'selected' : ''}>待揭晓</option>
+          <option value="void" ${filterStatus === 'void' ? 'selected' : ''}>已作废</option>
+        </select>
+        <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input class="input" id="fKeyword" placeholder="搜索姓名 / 部门" value="${LK.esc(keyword)}">
+        </div>
+        <span class="small muted">${list.length} 条记录</span>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr>
+              <th style="width:44px">#</th><th>奖项</th><th>中奖人</th><th>部门 / 门店</th>
+              <th>状态</th><th>轮次</th><th>分配时间</th><th>揭晓时间</th><th>来源</th><th>备注</th>
+            </tr></thead>
+            <tbody>
+              ${list.length ? list.slice(0, 500).map((w, i) => `
+                <tr>
+                  <td class="muted mono">${i + 1}</td>
+                  <td>${LK.esc(w.prizeName)}</td>
+                  <td><div class="person">${LK.avatar(w.participantName, 26)}<span class="nm">${LK.esc(w.participantName)}</span></div></td>
+                  <td class="muted">${LK.esc(w.participantDept || '—')}</td>
+                  <td class="status-${w.status}">${statusText[w.status] || w.status}</td>
+                  <td class="mono muted">${w.roundSeq ? '#' + w.roundSeq : '—'}</td>
+                  <td class="small muted mono">${LK.fmtFull(w.assignedAt)}</td>
+                  <td class="small muted mono">${LK.fmtFull(w.revealedAt)}</td>
+                  <td class="small muted">${sourceText[w.source] || w.source}</td>
+                  <td class="small muted">${LK.esc(w.voidReason || w.note || '')}</td>
+                </tr>`).join('') : `<tr><td colspan="10"><div class="empty">没有匹配的记录</div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        ${list.length > 500 ? '<div class="small muted" style="padding:12px 16px">仅显示前 500 条，完整数据请导出 Excel</div>' : ''}
+      </div>`;
+  }
+
+  function roundsView() {
+    const rounds = snap.rounds || [];
+    return `
+      <div class="card">
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr>
+              <th>轮次</th><th>名称</th><th>奖项</th><th>名额</th><th>参与池</th>
+              <th>已揭晓</th><th>待揭晓</th><th>作废</th><th>未中奖</th><th>状态</th><th>开启</th><th>结束</th><th>抽奖凭证</th>
+            </tr></thead>
+            <tbody>
+              ${rounds.length ? rounds.map((r) => {
+                const ra = snap.awards.filter((w) => w.roundId === r.id);
+                return `<tr>
+                  <td class="mono">#${r.seq}</td>
+                  <td>${LK.esc(r.name)}</td>
+                  <td>${LK.esc(r.prizeName)}</td>
+                  <td class="mono">${r.count}</td>
+                  <td class="mono muted">${r.poolSize}</td>
+                  <td class="mono">${ra.filter((w) => w.status === 'revealed').length}</td>
+                  <td class="mono">${ra.filter((w) => w.status === 'pending').length}</td>
+                  <td class="mono">${ra.filter((w) => w.status === 'void').length}</td>
+                  <td class="mono muted">${r.noneIds.length}</td>
+                  <td>${r.status === 'open' ? '<span class="chip live"><i class="pulse"></i>进行中</span>' : '<span class="chip">已结束</span>'}</td>
+                  <td class="small muted mono">${LK.fmtFull(r.openedAt)}</td>
+                  <td class="small muted mono">${LK.fmtFull(r.closedAt)}</td>
+                  <td class="small muted mono">${LK.esc(r.proof)}</td>
+                </tr>`;
+              }).join('') : `<tr><td colspan="13"><div class="empty">还没有轮次记录</div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function logsView() {
+    const logs = snap.logs || [];
+    return `
+      <div class="card">
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th style="width:180px">时间</th><th style="width:100px">操作人</th><th style="width:160px">动作</th><th>详情</th></tr></thead>
+            <tbody>
+              ${logs.length ? logs.map((l) => `<tr>
+                <td class="small muted mono">${LK.fmtFull(l.ts)}</td>
+                <td class="small">${LK.esc(l.actor)}</td>
+                <td><span class="chip">${LK.esc(l.action)}</span></td>
+                <td class="small">${LK.esc(l.detail)}</td>
+              </tr>`).join('') : `<tr><td colspan="4"><div class="empty">还没有操作记录</div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  async function exportXlsx() {
+    try {
+      const qs = new URLSearchParams({ activityId: snap.activity.id });
+      if (LK.state.pin) qs.set('pin', LK.state.pin);
+      const res = await fetch(`/api/export.xlsx?${qs}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.code === 'PIN_REQUIRED') {
+          const ok = await LK.askPin();
+          if (ok) return exportXlsx();
+        }
+        throw new Error(data.error || '导出失败');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${snap.activity.name}-中奖记录.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      LK.toast('Excel 已开始下载', 'ok');
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    }
+  }
+
+  document.addEventListener('click', (e) => {
+    const tabBtn = e.target.closest('[data-tab]');
+    if (tabBtn) {
+      tab = tabBtn.dataset.tab;
+      render();
+      return;
+    }
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    if (btn.dataset.act === 'export') return exportXlsx();
+    if (btn.dataset.act === 'print') {
+      if (tab !== 'awards') {
+        tab = 'awards';
+        render();
+        setTimeout(() => window.print(), 300);
+        return;
+      }
+      window.print();
+    }
+  });
+
+  document.addEventListener('change', (e) => {
+    if (e.target.id === 'fRound') { filterRound = e.target.value; render(); }
+    if (e.target.id === 'fPrize') { filterPrize = e.target.value; render(); }
+    if (e.target.id === 'fStatus') { filterStatus = e.target.value; render(); }
+  });
+
+  document.addEventListener('input', (e) => {
+    if (e.target.id === 'fKeyword') {
+      keyword = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      const next = $('#fKeyword');
+      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+    }
+  });
+
+  (async function () {
+    await LK.ready();
+    if (!LK.state.activityId) {
+      $('#page').innerHTML = '<div class="blank"><h3>还没有活动</h3><p>先到「系统设置」创建活动。</p></div>';
+      return;
+    }
+    await load();
+  })();
+})();
+</script>
+</body>
+</html>

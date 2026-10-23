@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>现场大屏 · LUCKY</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23b93a2c'/><text x='16' y='23' font-size='19' text-anchor='middle' fill='white' font-family='serif'>幸</text></svg>">
+<style>
+  :root {
+    --bg: #08080a;
+    --bg-2: #0e0f13;
+    --cream: #f4ecdc;
+    --cream-2: #cfc6b4;
+    --gold: #e0b46c;
+    --gold-2: #b98a45;
+    --red: #d4503c;
+    --line: rgba(224, 180, 108, 0.16);
+    --font-display: "Songti SC", "Noto Serif SC", "STSong", serif;
+    --font-sans: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: var(--bg);
+    color: var(--cream);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(60% 45% at 50% -8%, rgba(212, 80, 60, 0.22), transparent 70%),
+      radial-gradient(40% 38% at 82% 8%, rgba(224, 180, 108, 0.10), transparent 70%),
+      radial-gradient(50% 40% at 12% 100%, rgba(185, 138, 69, 0.10), transparent 70%);
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .35;
+    background-image: radial-gradient(rgba(255,255,255,.055) 1px, transparent 1px);
+    background-size: 3px 3px;
+  }
+
+  .stage { position: relative; height: 100%; display: flex; flex-direction: column; padding: 2.2vh 3vw 2vh; z-index: 1; }
+
+  /* 顶栏 */
+  .scr-top { display: flex; align-items: center; gap: 18px; flex: 0 0 auto; }
+  .brand-min { display: flex; align-items: center; gap: 12px; }
+  .brand-min .mark {
+    width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+    background: linear-gradient(145deg, #d0503c, #8e241a);
+    font-family: var(--font-display); font-size: 19px; color: #fff;
+    box-shadow: 0 0 36px -6px rgba(212,80,60,.7);
+  }
+  .brand-min .txt b { display: block; font-size: 15px; letter-spacing: .3em; font-weight: 600; }
+  .brand-min .txt span { font-size: 9.5px; letter-spacing: .26em; color: #7c7669; text-transform: uppercase; }
+  .top-act { font-family: var(--font-display); font-size: clamp(15px, 1.3vw, 21px); color: var(--cream-2); letter-spacing: .04em; }
+  .top-right { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+  .top-clock { text-align: right; }
+  .top-clock b { display: block; font-size: clamp(20px, 1.7vw, 28px); font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+  .top-clock span { font-size: 10.5px; color: #837c6d; letter-spacing: .16em; }
+  .live-chip {
+    display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 99px;
+    border: 1px solid rgba(212,80,60,.4); color: #f0a496; font-size: 11px; letter-spacing: .18em;
+  }
+  .live-chip i { width: 6px; height: 6px; border-radius: 50%; background: #e2543f; animation: blink 1.6s infinite; }
+  @keyframes blink { 0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(226,84,63,.6);} 50% { opacity:.4; box-shadow: 0 0 0 6px rgba(226,84,63,0);} }
+  .sound-btn {
+    background: transparent; border: 1px solid rgba(255,255,255,.14); color: #b6ae9e;
+    height: 32px; padding: 0 12px; border-radius: 99px; font-size: 11.5px; letter-spacing: .06em;
+  }
+  .sound-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+  /* 主区域 */
+  .scr-grid {
+    flex: 1; min-height: 0; display: grid;
+    grid-template-columns: minmax(200px, 17vw) 1fr minmax(240px, 21vw);
+    gap: 3vw; align-items: stretch; padding: 3.2vh 0 2vh;
+  }
+
+  .side { display: flex; flex-direction: column; min-height: 0; }
+  .side-label { font-size: 10.5px; letter-spacing: .3em; color: #7c7466; text-transform: uppercase; }
+  .side-prize {
+    font-family: var(--font-display); font-size: clamp(24px, 2.4vw, 42px); line-height: 1.25;
+    margin-top: 10px; color: var(--cream);
+  }
+  .side-tag { margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .12em; color: var(--gold); }
+  .side-stat { margin-top: auto; }
+  .side-num { font-size: clamp(38px, 4vw, 62px); font-weight: 200; line-height: 1; font-variant-numeric: tabular-nums; }
+  .side-num small { font-size: 14px; color: #8b8475; margin-left: 6px; font-weight: 400; }
+  .side-bar { height: 2px; background: rgba(255,255,255,.09); margin: 14px 0 10px; }
+  .side-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--gold-2), var(--gold)); transition: width .6s; }
+  .side-foot { font-size: 11px; color: #7c7466; letter-spacing: .05em; line-height: 1.9; }
+  .side-foot b { color: #b7ad9b; font-weight: 500; }
+
+  .pool { margin-top: 18px; overflow: hidden; }
+  .pool-item { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 12px; }
+  .pool-item .n { color: #b3aa99; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pool-item .c { font-variant-numeric: tabular-nums; color: var(--gold); font-size: 13px; }
+  .pool-item .c small { color: #6e6759; font-size: 10px; }
+
+  /* 中间 */
+  .center { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-width: 0; position: relative; }
+
+  .kicker { font-size: 11.5px; letter-spacing: .42em; color: var(--gold-2); text-transform: uppercase; }
+  .hero-name {
+    font-family: var(--font-display);
+    font-size: clamp(58px, 10.5vw, 156px);
+    line-height: 1.06; letter-spacing: .02em; margin: 2vh 0 0;
+    background: linear-gradient(180deg, #fffaf0 10%, #e8cfa2 55%, #c19551 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 90px rgba(224,180,108,.18);
+    animation: rise .9s cubic-bezier(.2,.8,.25,1) both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(26px) scale(.98); } }
+  .hero-sub { margin-top: 1.2vh; font-size: clamp(12px, 1.05vw, 17px); color: #9d9585; letter-spacing: .12em; }
+  .hero-prize {
+    margin-top: 2.4vh; display: inline-flex; align-items: center; gap: 12px;
+    padding: 10px 22px; border: 1px solid rgba(224,180,108,.32); border-radius: 2px;
+    font-family: var(--font-display); font-size: clamp(15px, 1.5vw, 24px); color: #ecd9b6;
+    background: linear-gradient(180deg, rgba(224,180,108,.09), transparent);
+  }
+  .hero-prize::before, .hero-prize::after { content: ""; width: 18px; height: 1px; background: rgba(224,180,108,.5); }
+
+  .wait-wrap { position: relative; display: grid; place-items: center; }
+  .rings { position: absolute; width: 300px; height: 300px; }
+  .rings i {
+    position: absolute; inset: 0; border: 1px solid rgba(224,180,108,.22); border-radius: 50%;
+    animation: ring 3.6s ease-out infinite;
+  }
+  .rings i:nth-child(2) { animation-delay: 1.2s; }
+  .rings i:nth-child(3) { animation-delay: 2.4s; }
+  @keyframes ring { 0% { transform: scale(.55); opacity: 0; } 30% { opacity: .9; } 100% { transform: scale(1.35); opacity: 0; } }
+
+  .idle-word {
+    font-family: var(--font-display); font-size: clamp(40px, 5.2vw, 78px); letter-spacing: .18em;
+    color: #efe4cf; margin: 0 0 1.4vh; text-indent: .18em;
+  }
+  .idle-sub { font-size: clamp(12px, 1vw, 15px); color: #7f7768; letter-spacing: .3em; }
+  .hero-stats { display: flex; gap: 4vw; margin-top: 4vh; }
+  .hero-stats div { text-align: center; }
+  .hero-stats b { display: block; font-size: clamp(24px, 2.4vw, 38px); font-weight: 200; color: #e9dcc3; font-variant-numeric: tabular-nums; }
+  .hero-stats span { font-size: 10.5px; letter-spacing: .22em; color: #776f60; }
+
+  /* 中奖榜 */
+  .board { display: flex; flex-direction: column; min-height: 0; }
+  .board-head { display: flex; align-items: baseline; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .board-head h3 { margin: 0; font-size: 11px; letter-spacing: .3em; color: #8d8474; font-weight: 500; }
+  .board-head span { margin-left: auto; font-size: 11px; color: var(--gold-2); font-variant-numeric: tabular-nums; }
+  .board-list { flex: 1; overflow: hidden; margin-top: 4px; display: flex; flex-direction: column; }
+  .board-item {
+    display: flex; align-items: center; gap: 10px; padding: 9px 0;
+    border-bottom: 1px solid rgba(255,255,255,.045); animation: slide .5s ease both;
+  }
+  @keyframes slide { from { opacity: 0; transform: translateY(-6px); } }
+  .board-item .idx { font-size: 10px; color: #6d6657; width: 16px; font-variant-numeric: tabular-nums; }
+  .board-item .nm { font-size: 15px; color: #e6dcc8; font-weight: 500; }
+  .board-item .dp { font-size: 10.5px; color: #78705f; margin-top: 1px; }
+  .board-item .lvl { margin-left: auto; font-size: 10px; padding: 2px 7px; border-radius: 2px; border: 1px solid rgba(224,180,108,.25); color: var(--gold); white-space: nowrap; }
+  .board-empty { color: #6d6657; font-size: 11.5px; padding: 24px 0; letter-spacing: .1em; }
+  .join-panel { margin-top: 6px; flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; }
+  .big-qr { width: 190px; height: 190px; background: #fff; padding: 9px; border-radius: 8px; }
+  .big-qr svg { width: 100%; height: 100%; display: block; }
+  .join-code { font-family: var(--font-display); font-size: 27px; letter-spacing: .28em; color: var(--gold); margin-top: 16px; }
+  .join-tip { font-size: 11px; color: #7c7466; line-height: 1.9; margin-top: 8px; letter-spacing: .05em; }
+  .board-ghost { padding: 36px 0; }
+  .board-ghost b { display: block; font-size: 62px; font-weight: 200; line-height: 1; color: rgba(224,180,108,.32); font-variant-numeric: tabular-nums; }
+  .board-ghost span { display: block; font-size: 11px; letter-spacing: .16em; color: #6d6657; margin-top: 8px; }
+
+  /* 底部 */
+  .scr-foot { flex: 0 0 auto; display: flex; align-items: center; gap: 18px; padding-top: 1.4vh; border-top: 1px solid rgba(255,255,255,.06); }
+  .join-box { display: flex; align-items: center; gap: 12px; }
+  .join-qr { width: 66px; height: 66px; background: #fff; padding: 4px; border-radius: 4px; }
+  .join-qr svg { width: 100%; height: 100%; display: block; }
+  .join-txt b { display: block; font-size: 12px; letter-spacing: .14em; color: #d8cdb9; }
+  .join-txt span { font-size: 10.5px; color: #7a7263; letter-spacing: .06em; }
+  .foot-code { font-family: var(--font-display); font-size: 20px; letter-spacing: .26em; color: var(--gold); }
+  .foot-stats { margin-left: auto; display: flex; gap: 26px; font-size: 11px; color: #7a7263; letter-spacing: .06em; }
+  .foot-stats b { color: #bdb3a1; font-weight: 500; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+  /* 揭晓覆盖层 */
+  .celebrate {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    background: radial-gradient(60% 60% at 50% 42%, #3a1610 0%, #0a0a0c 72%);
+    place-items: center; text-align: center;
+  }
+  .celebrate.on { display: grid; }
+  .celebrate canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .cel-inner { position: relative; z-index: 2; padding: 0 6vw; }
+  .cel-kicker { font-size: 12px; letter-spacing: .5em; color: var(--gold-2); text-indent: .5em; }
+  .cel-name {
+    font-family: var(--font-display); font-size: clamp(80px, 14vw, 210px); line-height: 1.02;
+    margin: 1.6vh 0 0; letter-spacing: .03em;
+    background: linear-gradient(180deg, #fffdf7 5%, #f0d8ac 50%, #c08f47 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 60px rgba(224,180,108,.3));
+    animation: nameIn .8s cubic-bezier(.15,.85,.25,1) both;
+  }
+  @keyframes nameIn { 0% { opacity: 0; transform: scale(.86); filter: blur(8px); } 100% { opacity: 1; transform: scale(1); filter: blur(0); } }
+  .cel-dept { margin-top: 1.2vh; font-size: clamp(12px, 1.1vw, 17px); color: #9c9280; letter-spacing: .22em; }
+  .cel-line { width: 44px; height: 1px; background: rgba(224,180,108,.5); margin: 3vh auto; }
+  .cel-prize { font-family: var(--font-display); font-size: clamp(20px, 2.4vw, 38px); color: #f0dfc0; letter-spacing: .06em; }
+  .cel-tip { margin-top: 2vh; font-size: 10.5px; letter-spacing: .34em; color: #6d6454; text-indent: .34em; }
+  .cel-skip {
+    position: absolute; right: 4vw; bottom: 4vh; font-size: 10.5px; letter-spacing: .16em;
+    color: rgba(224, 180, 108, 0.35); z-index: 3;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <header class="scr-top">
+    <div class="brand-min">
+      <div class="mark">幸</div>
+      <div class="txt"><b>LUCKY</b><span>live draw</span></div>
+    </div>
+    <div class="top-act" id="topAct">现场抽奖</div>
+    <div class="top-right">
+      <span class="live-chip" id="liveChip"><i></i>LIVE</span>
+      <div class="top-clock"><b id="clock">--:--</b><span id="today"></span></div>
+      <button class="sound-btn" id="soundBtn">开启音效</button>
+    </div>
+  </header>
+
+  <div class="scr-grid">
+    <aside class="side" id="side"></aside>
+    <main class="center" id="center"></main>
+    <aside class="board" id="boardPanel"></aside>
+  </div>
+
+  <footer class="scr-foot">
+    <div class="join-box" id="footJoin">
+      <div class="join-qr" id="joinQr"></div>
+      <div class="join-txt"><b>扫码参与</b><span>姓名 + 证件后四位验证</span></div>
+    </div>
+    <div class="foot-code" id="footCode">—</div>
+    <div class="foot-stats" id="footStats"></div>
+  </footer>
+</div>
+
+<div class="celebrate" id="celebrate">
+  <canvas id="confetti"></canvas>
+  <div class="cel-inner">
+    <div class="cel-kicker" id="celKicker">恭喜</div>
+    <div class="cel-name" id="celName">—</div>
+    <div class="cel-dept" id="celDept"></div>
+    <div class="cel-line"></div>
+    <div class="cel-prize" id="celPrize"></div>
+    <div class="cel-tip">本轮奖品已同步至中奖人手机</div>
+  </div>
+  <div class="cel-skip">点击任意处跳到下一位</div>
+</div>
+
+<script src="/assets/qrcode.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+(function () {
+  let snap = null;
+  let activityId = null;
+  let queue = [];
+  let soundOn = localStorage.getItem('lucky.sound') === '1';
+  let audioCtx = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  function setClock() {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    $('clock').textContent = `${p(d.getHours())}:${p(d.getMinutes())}`;
+    $('today').textContent = `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${['周日','周一','周二','周三','周四','周五','周六'][d.getDay()]}`;
+  }
+
+  function playChime() {
+    if (!soundOn) return;
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const now = audioCtx.currentTime;
+      [784, 988, 1319].forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const t = now + i * 0.11;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.12, t + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+        osc.start(t);
+        osc.stop(t + 1.6);
+      });
+    } catch (_) {}
+  }
+
+  function renderSide() {
+    const r = snap.round;
+    if (!r) {
+      $('side').innerHTML = `
+        <div class="side-label">Prize Pool</div>
+        <div class="side-prize" style="font-size:clamp(20px,1.8vw,28px)">奖池</div>
+        <div class="side-tag">等待开启</div>
+        <div class="pool">
+          ${snap.prizes.map((p) => `<div class="pool-item"><span class="n">${LK.esc(p.name)}</span><span class="c">${p.remaining}<small>/${p.total}</small></span></div>`).join('') || '<div class="board-empty">尚未配置奖项</div>'}
+        </div>`;
+      return;
+    }
+    const p = snap.progress || { assigned: 0, revealed: 0, pending: 0, scratched: 0, count: r.count };
+    const pct = p.assigned ? Math.round((p.revealed / p.assigned) * 100) : 0;
+    $('side').innerHTML = `
+      <div class="side-label">Current Round</div>
+      <div class="side-prize">${LK.esc(r.prizeName)}</div>
+      <div class="side-tag">${r.status === 'open' ? '正在揭晓' : '本轮已结束'} · 第 ${r.seq} 轮</div>
+      <div class="side-stat">
+        <div class="side-num">${p.revealed}<small>/ ${p.assigned} 已揭晓</small></div>
+        <div class="side-bar"><i style="width:${pct}%"></i></div>
+        <div class="side-foot">
+          本轮名额 <b>${r.count}</b><br>
+          待揭晓 <b>${p.pending}</b> · 未中奖 <b>${p.scratched}</b><br>
+          参与池 <b>${r.poolSize || snap.stats.verifiedCount}</b> 人
+        </div>
+      </div>`;
+  }
+
+  function renderCenter() {
+    const r = snap.round;
+    const c = $('center');
+
+    if (!r) {
+      c.innerHTML = `
+        <div class="wait-wrap">
+          <div class="rings"><i></i><i></i><i></i></div>
+          <div>
+            <div class="idle-word">现场抽奖</div>
+            <div class="idle-sub">WAITING FOR THE NEXT ROUND</div>
+          </div>
+        </div>
+        <div class="hero-stats">
+          <div><b>${snap.stats.totalParticipants}</b><span>参与名单</span></div>
+          <div><b>${snap.stats.verifiedCount}</b><span>已通过验证</span></div>
+          <div><b>${snap.stats.winners}</b><span>已产生中奖</span></div>
+        </div>`;
+      return;
+    }
+
+    const last = snap.feed[0];
+    if (r.status === 'closed') {
+      c.innerHTML = `
+        <div class="kicker">ROUND ${r.seq} COMPLETE</div>
+        <div class="idle-word" style="margin-top:2vh">本轮结束</div>
+        <div class="hero-sub">${LK.esc(r.prizeName)} · 共揭晓 ${snap.progress.revealed} 位</div>
+        ${snap.progress.pending ? `<div class="hero-sub" style="color:#a4645a">${snap.progress.pending} 个名额未揭晓，已作废</div>` : ''}`;
+      return;
+    }
+
+    if (last) {
+      c.innerHTML = `
+        <div class="kicker">CONGRATULATIONS</div>
+        <div class="hero-name">${LK.esc(last.participantName)}</div>
+        <div class="hero-sub">${LK.esc(last.participantDept || '现场来宾')}</div>
+        <div class="hero-prize">${LK.esc(last.prizeName)}</div>`;
+      return;
+    }
+
+    c.innerHTML = `
+      <div class="wait-wrap">
+        <div class="rings"><i></i><i></i><i></i></div>
+        <div>
+          <div class="kicker">ROUND ${r.seq}</div>
+          <div class="idle-word" style="margin-top:1.6vh">等待揭晓</div>
+          <div class="idle-sub">请已参与的来宾刮开手机卡片</div>
+        </div>
+      </div>
+      <div class="hero-prize" style="margin-top:4vh">${LK.esc(r.prizeName)} · ${r.count} 个名额</div>`;
+  }
+
+  function renderBoard() {
+    const panel = $('boardPanel');
+    const round = snap.round;
+
+    if (!round) {
+      panel.innerHTML = `
+        <div class="board-head"><h3>扫码参与</h3></div>
+        <div class="join-panel">
+          <div class="big-qr">${LK.qrSvg(LK.joinUrl(snap.activity.code))}</div>
+          <div class="join-code">${snap.activity.code}</div>
+          <div class="join-tip">扫码进入 · 姓名 + 证件后四位验证<br>验证通过后即可等待下一轮开奖</div>
+        </div>`;
+      return;
+    }
+
+    const list = (snap.feed || []).slice(0, 9);
+    panel.innerHTML = `
+      <div class="board-head"><h3>本轮中奖榜</h3><span>${(snap.feed || []).length} 位</span></div>
+      <div class="board-list">
+        ${list.length ? list.map((w, i) => `
+          <div class="board-item">
+            <span class="idx">${String(i + 1).padStart(2, '0')}</span>
+            <div style="min-width:0">
+              <div class="nm">${LK.esc(w.participantName)}</div>
+              <div class="dp">${LK.esc(w.participantDept || '—')}</div>
+            </div>
+            <span class="lvl">${LK.esc(w.level || '中奖')}</span>
+          </div>`).join('')
+        : `<div class="board-ghost"><b>${(snap.progress && snap.progress.pending) || 0}</b><span>${round.status === 'closed' ? '本轮已结束' : '个名额等待揭晓'}</span></div>`}
+      </div>`;
+  }
+
+  function renderFoot() {
+    $('footCode').textContent = snap.activity.code;
+    $('footStats').innerHTML = `
+      <span>参与<b>${snap.stats.totalParticipants}</b></span>
+      <span>已验证<b>${snap.stats.verifiedCount}</b></span>
+      <span>中奖<b>${snap.stats.winners}</b></span>`;
+  }
+
+  function render() {
+    $('topAct').textContent = snap.activity.name;
+    $('liveChip').style.visibility = snap.activity.status === 'live' ? 'visible' : 'hidden';
+    renderSide();
+    renderCenter();
+    renderBoard();
+    renderFoot();
+    $('joinQr').innerHTML = LK.qrSvg(LK.joinUrl(snap.activity.code));
+    $('footJoin').style.display = snap.round ? '' : 'none';
+  }
+
+  /* ------------------------- 揭晓庆祝 ------------------------- */
+
+  const canvas = $('confetti');
+  let ctx = canvas.getContext('2d');
+  let particles = [];
+  let raf = null;
+  let stopAt = 0;
+
+  function resizeCanvas() {
+    canvas.width = window.innerWidth * devicePixelRatio;
+    canvas.height = window.innerHeight * devicePixelRatio;
+    ctx = canvas.getContext('2d');
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    if (!particles.length) return;
+  });
+
+  function burst() {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const colors = ['#e0b46c', '#c9934a', '#e2543f', '#f6efe2', '#9c3527', '#f3d9a5'];
+    particles = [];
+    for (let i = 0; i < 160; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 8 + 3;
+      particles.push({
+        x: W / 2 + (Math.random() - 0.5) * 260,
+        y: H * 0.42 + (Math.random() - 0.5) * 80,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 6,
+        g: 0.18 + Math.random() * 0.12,
+        w: Math.random() * 7 + 3,
+        h: Math.random() * 4 + 2,
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 0.35,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        alpha: 1,
+      });
+    }
+    stopAt = Date.now() + 4200;
+    if (!raf) loop();
+  }
+
+  function loop() {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    ctx.clearRect(0, 0, W, H);
+    particles.forEach((p) => {
+      p.vy += p.g;
+      p.vx *= 0.995;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.rot += p.vr;
+      if (Date.now() > stopAt) p.alpha -= 0.012;
+      if (p.y > H + 40) p.alpha = 0;
+      if (p.alpha <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = Math.max(p.alpha, 0);
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    });
+    particles = particles.filter((p) => p.alpha > 0);
+    if (particles.length) {
+      raf = requestAnimationFrame(loop);
+    } else {
+      cancelAnimationFrame(raf);
+      raf = null;
+      ctx.clearRect(0, 0, W, H);
+    }
+  }
+
+  let celebrating = false;
+  let currentDone = true;
+  let currentTimer = null;
+
+  function playNext() {
+    if (celebrating || !queue.length) return;
+    celebrating = true;
+    currentDone = false;
+    const award = queue.shift();
+    const overlay = $('celebrate');
+    $('celKicker').textContent = `第 ${award.roundSeq || ''} 轮 · CONGRATULATIONS`;
+    $('celName').textContent = award.participantName;
+    $('celDept').textContent = award.participantDept || '现场来宾';
+    $('celPrize').textContent = award.prizeName;
+
+    const nameEl = $('celName');
+    const len = String(award.participantName || '').length;
+    nameEl.style.fontSize = len <= 3 ? '' : len === 4 ? 'clamp(56px, 11vw, 160px)' : 'clamp(42px, 8.5vw, 124px)';
+
+    overlay.classList.add('on');
+    // 重启动画
+    nameEl.style.animation = 'none';
+    void nameEl.offsetWidth;
+    nameEl.style.animation = '';
+    burst();
+    playChime();
+
+    // 队列积压时自动加速，避免几十个名字播几分钟
+    const duration = queue.length >= 6 ? 1900 : queue.length >= 3 ? 2800 : 4400;
+    clearTimeout(currentTimer);
+    currentTimer = setTimeout(finishCurrent, duration);
+  }
+
+  function finishCurrent() {
+    if (!celebrating || currentDone) return;
+    currentDone = true;
+    clearTimeout(currentTimer);
+    $('celebrate').classList.remove('on');
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    particles = [];
+    setTimeout(() => {
+      celebrating = false;
+      playNext();
+    }, 360);
+  }
+
+  /* ---------------------------- 启动 ---------------------------- */
+
+  async function load() {
+    try {
+      if (!activityId) {
+        await LK.ready();
+        activityId = LK.state.activityId;
+      }
+      if (!activityId) {
+        $('center').innerHTML = '<div class="idle-word">尚未创建活动</div>';
+        return;
+      }
+      snap = await LK.get(`/api/screen/${activityId}`);
+      render();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  (async function () {
+    setClock();
+    setInterval(setClock, 1000);
+    await load();
+    if (!activityId) return;
+
+    LK.stream(activityId, (evt) => {
+      if (evt.type === 'award.revealed') {
+        queue.push(evt.award);
+        playNext();
+        load();
+        return;
+      }
+      load();
+    });
+
+    // 兜底轮询，防止网络抖动漏事件
+    setInterval(() => {
+      if (!celebrating) load();
+    }, 15_000);
+  })();
+
+  $('celebrate').onclick = finishCurrent;
+
+  $('soundBtn').onclick = () => {
+    soundOn = !soundOn;
+    localStorage.setItem('lucky.sound', soundOn ? '1' : '0');
+    $('soundBtn').textContent = soundOn ? '音效已开启' : '开启音效';
+    if (soundOn) {
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        audioCtx.resume();
+      } catch (_) {}
+      playChime();
+    }
+  };
+  $('soundBtn').textContent = soundOn ? '音效已开启' : '开启音效';
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "lucky-live-draw",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LUCKY 现场抽奖系统 · 扫码验证 + 主持人控奖 + 大屏同步 + 结果留档",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

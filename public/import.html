@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>名单与奖项 · LUCKY</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23b93a2c'/><text x='16' y='23' font-size='19' text-anchor='middle' fill='white' font-family='serif'>幸</text></svg>">
+<link rel="stylesheet" href="/assets/app.css">
+<style>
+  .preview-table { max-height: 230px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; }
+  .preview-table table { font-size: 12px; }
+  .preview-table th { position: sticky; top: 0; z-index: 1; }
+  .bad { color: #b93a2c; }
+  .good { color: #2b7357; }
+  .dropzone input { display: none; }
+  .format-hint { font-size: 11.5px; color: var(--muted); line-height: 1.9; }
+  .format-hint code { background: var(--paper-2); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  .prize-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .prize-tile { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: #fff; position: relative; }
+  .prize-tile .pt-name { font-weight: 600; font-size: 14px; padding-right: 40px; }
+  .prize-tile .pt-level { font-size: 11px; color: var(--gold); letter-spacing: .06em; margin-top: 2px; }
+  .prize-tile .pt-num { font-family: var(--font-num); font-size: 24px; font-weight: 600; margin-top: 10px; }
+  .prize-tile .pt-num small { font-size: 12px; color: var(--muted); font-weight: 400; }
+  .prize-tile .pt-ops { position: absolute; top: 10px; right: 10px; display: flex; gap: 2px; }
+  .avatar-sm { width: 26px; height: 26px; }
+  .tag-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+    <div class="page" id="page"><div class="empty">正在载入…</div></div>
+  </div>
+</div>
+
+<script src="/assets/app.js"></script>
+<script>
+(function () {
+  let snap = null;
+  let tab = 'participants';
+  let preview = null; // {rows, kind, fileName}
+  let pasteText = '';
+  let search = '';
+  let showId = true;
+  let parsing = false;
+
+  const $ = (s) => document.querySelector(s);
+
+  async function load() {
+    snap = await LK.get(`/api/activities/${LK.state.activityId}/snapshot`);
+    render();
+  }
+
+  function topbarActions() {
+    return `
+      <a class="btn btn-sm" href="/api/template.xlsx?type=${tab === 'prizes' ? 'prizes' : 'participants'}">${LK.icon('file', 14)} 下载模板</a>
+      <button class="btn btn-sm" data-act="add-prize">${LK.icon('plus', 14)} 新增奖项</button>`;
+  }
+
+  function render() {
+    LK.mountShell({
+      active: 'import',
+      title: '名单与奖项',
+      sub: `${LK.esc(snap.activity.name)} · 名单 ${snap.participants.length} 人 · 奖项 ${snap.prizes.length} 项`,
+      actions: '',
+    });
+    const tb = $('#topbar');
+    tb.innerHTML = `
+      <div><h1>名单与奖项</h1><div class="sub">${LK.esc(snap.activity.name)} · 名单 ${snap.participants.length} 人 · 奖项 ${snap.prizes.length} 项</div></div>
+      <div class="topbar-actions">
+        ${tab === 'participants' ? `<button class="btn btn-sm" data-act="export-participants">${LK.icon('download', 14)} 导出名单</button>` : ''}
+        <a class="btn btn-sm" href="/api/template.xlsx?type=${tab === 'prizes' ? 'prizes' : 'participants'}">${LK.icon('file', 14)} 下载模板</a>
+      </div>`;
+
+    $('#page').innerHTML = `
+      <div class="row" style="margin-bottom:18px">
+        <div class="tabs">
+          <button data-tab="participants" class="${tab === 'participants' ? 'active' : ''}">参与者名单</button>
+          <button data-tab="prizes" class="${tab === 'prizes' ? 'active' : ''}">奖项配置</button>
+        </div>
+        <div class="spacer"></div>
+        ${tab === 'participants'
+          ? `<span class="small muted">已验证 ${snap.stats.verifiedCount} / ${snap.stats.totalParticipants}</span>`
+          : `<button class="btn btn-sm btn-primary" data-act="add-prize">${LK.icon('plus', 14)} 新增奖项</button>`}
+      </div>
+      ${tab === 'participants' ? participantsView() : prizesView()}`;
+
+    if (preview) bindPreview();
+  }
+
+  /* --------------------------- 参与者 --------------------------- */
+
+  function participantsView() {
+    const list = snap.participants.filter((p) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return p.name.toLowerCase().includes(q) || (p.dept || '').toLowerCase().includes(q) || (p.phone || '').includes(q) || (p.id4 || '').includes(q);
+    });
+
+    return `
+      <div class="grid-2" style="margin-bottom:18px">
+        <div class="card">
+          <div class="card-head"><h2>批量导入名单</h2><span class="hint">支持 Excel / CSV / 粘贴</span></div>
+          <div class="card-body">
+            ${importBox('participants')}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>导入规则</h2></div>
+          <div class="card-body" style="font-size:12.5px;line-height:1.95;color:var(--ink-3)">
+            <div class="format-hint">
+              <div style="margin-bottom:10px"><b style="color:var(--ink)">列顺序</b>　姓名 · 证件后四位 · 部门/门店 · 手机号</div>
+              <div style="margin-bottom:10px"><b style="color:var(--ink)">唯一性</b>　姓名 + 证件后四位 组合唯一，重复行会自动跳过</div>
+              <div style="margin-bottom:10px"><b style="color:var(--ink)">覆盖导入</b>　会清空当前名单（已有发奖记录时禁止覆盖）</div>
+              <div><b style="color:var(--ink)">核验方式</b>　参与者需输入姓名与证件后四位，验证通过后进入抽奖池</div>
+            </div>
+            <div class="divider"></div>
+            <div class="row" style="gap:16px">
+              <div><div class="small muted">总人数</div><div style="font-size:19px;font-weight:600">${snap.stats.totalParticipants}</div></div>
+              <div><div class="small muted">已验证</div><div style="font-size:19px;font-weight:600;color:var(--green)">${snap.stats.verifiedCount}</div></div>
+              <div><div class="small muted">未验证</div><div style="font-size:19px;font-weight:600">${snap.stats.totalParticipants - snap.stats.verifiedCount}</div></div>
+              <div><div class="small muted">中奖人数</div><div style="font-size:19px;font-weight:600;color:var(--red)">${snap.stats.uniqueWinners}</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>名单明细</h2>
+          <span class="hint">${list.length} 条</span>
+          <div class="row" style="margin-left:14px;gap:8px">
+            <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input class="input" id="searchInput" placeholder="搜索姓名 / 部门 / 手机号" style="height:32px;width:220px" value="${LK.esc(search)}">
+            </div>
+            <button class="btn btn-sm btn-ghost" data-act="toggle-id">${showId ? '隐藏' : '显示'}后四位</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead>
+              <tr><th style="width:40px">#</th><th>姓名</th><th>部门 / 门店</th><th>手机号</th><th>证件后四位</th><th>验证状态</th><th>中奖</th><th style="text-align:right">操作</th></tr>
+            </thead>
+            <tbody>
+              ${list.length ? list.slice(0, 400).map((p, i) => {
+                const my = snap.awards.filter((w) => w.participantId === p.id && w.status !== 'void');
+                return `<tr>
+                  <td class="muted mono">${i + 1}</td>
+                  <td><div class="person">${LK.avatar(p.name, 26)}<span class="nm">${LK.esc(p.name)}</span></div></td>
+                  <td class="muted">${LK.esc(p.dept || '—')}</td>
+                  <td class="mono muted">${LK.esc(p.phone || '—')}</td>
+                  <td class="mono">${showId ? LK.esc(p.id4) : '••••'}</td>
+                  <td>${p.verifiedAt ? `<span class="chip live">已验证</span>` : `<span class="chip draft">待验证</span>`}</td>
+                  <td>${my.length ? my.map((w) => `<span class="chip red" style="margin-right:4px">${LK.esc(w.prizeName.split(' · ')[0])}</span>`).join('') : '<span class="muted">—</span>'}</td>
+                  <td style="text-align:right">
+                    <div class="ops" style="justify-content:flex-end">
+                      <button class="btn btn-sm btn-ghost" data-act="edit-p" data-id="${p.id}" title="编辑">${LK.icon('edit', 13)}</button>
+                      ${p.verifiedAt ? `<button class="btn btn-sm btn-ghost" data-act="reset" data-id="${p.id}">重置验证</button>` : ''}
+                      <button class="btn btn-sm btn-ghost" data-act="del-p" data-id="${p.id}" title="删除">${LK.icon('trash', 13)}</button>
+                    </div>
+                  </td>
+                </tr>`;
+              }).join('') : `<tr><td colspan="8"><div class="empty">${snap.participants.length ? '没有匹配的记录' : '还没有参与者，先在上方导入名单'}</div></td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        ${list.length > 400 ? `<div class="small muted" style="padding:12px 16px">仅显示前 400 条，请使用搜索缩小范围</div>` : ''}
+      </div>`;
+  }
+
+  /* --------------------------- 奖项 --------------------------- */
+
+  function prizesView() {
+    return `
+      <div class="grid-2" style="margin-bottom:18px">
+        <div class="card">
+          <div class="card-head"><h2>批量导入奖项</h2><span class="hint">支持 Excel / CSV / 粘贴</span></div>
+          <div class="card-body">${importBox('prizes')}</div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>库存控制</h2></div>
+          <div class="card-body" style="font-size:12.5px;line-height:1.95;color:var(--ink-3)">
+            <div class="format-hint">
+              <div style="margin-bottom:10px"><b style="color:var(--ink)">列顺序</b>　奖项名称 · 等级 · 数量 · 备注</div>
+              <div style="margin-bottom:10px"><b style="color:var(--ink)">库存</b>　开启轮次时按名额扣减，作废时自动归还</div>
+              <div style="margin-bottom:10px"><b style="color:var(--ink)">超发保护</b>　剩余为 0 的奖项无法继续开奖</div>
+              <div><b style="color:var(--ink)">覆盖导入</b>　会清空当前奖项（已有发奖记录时禁止覆盖）</div>
+            </div>
+            <div class="divider"></div>
+            <div class="banner">${LK.icon('info')} 建议按「特等奖 → 一等奖 → …」的顺序开奖，把最好的奖留到气氛最热的时候。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>奖项列表</h2><span class="hint">共 ${snap.prizes.length} 项</span>
+          <button class="btn btn-sm btn-primary" style="margin-left:auto" data-act="add-prize">${LK.icon('plus', 13)} 新增奖项</button>
+        </div>
+        <div class="card-body">
+          ${snap.prizes.length ? `<div class="prize-grid">
+            ${snap.prizes.map((p) => {
+              const used = p.total - p.remaining;
+              const pct = p.total ? Math.round((used / p.total) * 100) : 0;
+              return `<div class="prize-tile">
+                <div class="pt-ops">
+                  <button class="btn btn-sm btn-ghost" data-act="edit-prize" data-id="${p.id}">${LK.icon('edit', 13)}</button>
+                  <button class="btn btn-sm btn-ghost" data-act="del-prize" data-id="${p.id}">${LK.icon('trash', 13)}</button>
+                </div>
+                <div class="pt-name">${LK.esc(p.name)}</div>
+                <div class="pt-level">${LK.esc(p.level || '未分级')}</div>
+                <div class="pt-num">${p.remaining}<small> / ${p.total} 剩余</small></div>
+                <div class="progress" style="margin-top:10px"><i style="width:${pct}%"></i></div>
+                <div class="small muted" style="margin-top:6px">已发放 ${used} 份${p.note ? ' · ' + LK.esc(p.note) : ''}</div>
+              </div>`;
+            }).join('')}
+          </div>` : `<div class="empty">还没有奖项，先在上方导入或新增</div>`}
+        </div>
+      </div>`;
+  }
+
+  /* --------------------------- 导入组件 --------------------------- */
+
+  function importBox(kind) {
+    const isP = kind === 'participants';
+    return `
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".xlsx,.csv,.txt">
+        <div style="font-size:20px;opacity:.4;margin-bottom:4px">${LK.icon('upload', 22)}</div>
+        <div><b style="color:var(--ink-3)">点击选择文件</b> 或拖拽到此处</div>
+        <div class="small" style="margin-top:2px">.xlsx / .csv / .txt，单次建议不超过 5000 行</div>
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--muted);margin:12px 0">或直接粘贴</div>
+      <textarea class="input code-input" id="pasteInput" placeholder="${isP ? '张三,1024,总部 · 市场部,13800001234\n李四,2048,华东大区 · 上海静安店,13900005678' : '特等奖 · 戴森吹风机,特等奖,1,年度锦鲤\n一等奖 · AirPods Pro,一等奖,3'}">${LK.esc(pasteText)}</textarea>
+      <div class="row" style="margin-top:12px">
+        <select class="select" id="modeSel" style="width:130px;height:32px">
+          <option value="append">追加导入</option>
+          <option value="replace">覆盖导入</option>
+        </select>
+        <span class="small muted" id="parseInfo">${isP ? '需要 4 列：姓名 / 后四位 / 部门 / 手机' : '需要 3-4 列：名称 / 等级 / 数量 / 备注'}</span>
+        <div class="spacer"></div>
+        <button class="btn btn-sm" data-act="parse">解析预览</button>
+        <button class="btn btn-sm btn-primary" data-act="do-import" ${preview && preview.kind === kind ? '' : 'disabled'}>
+          导入${preview && preview.kind === kind ? ` ${preview.rows.filter((r) => r.valid).length} 条` : ''}
+        </button>
+      </div>
+      <div id="previewBox" style="margin-top:14px">
+        ${preview && preview.kind === kind ? '' : `<div class="small muted" style="text-align:center;padding:6px">粘贴内容后点击「解析预览」检查数据</div>`}
+      </div>`;
+  }
+
+  function bindPreview() {
+    const box = $('#previewBox');
+    if (!box || !preview) return;
+    const ok = preview.rows.filter((r) => r.valid).length;
+    const bad = preview.rows.length - ok;
+    const cols = preview.kind === 'participants' ? ['姓名', '证件后四位', '部门/门店', '手机号'] : ['奖项名称', '等级', '数量', '备注'];
+    box.innerHTML = `
+      <div class="row" style="margin-bottom:8px;gap:10px">
+        <span class="chip ${bad ? 'draft' : 'live'}">有效 ${ok} 条</span>
+        ${bad ? `<span class="chip red">异常 ${bad} 条</span>` : ''}
+        <span class="small muted">${preview.fileName ? LK.esc(preview.fileName) : '粘贴内容'}</span>
+        <div class="spacer"></div>
+        <button class="btn btn-sm btn-ghost" data-act="clear-preview">清空</button>
+      </div>
+      <div class="preview-table">
+        <table class="tbl">
+          <thead><tr><th>#</th>${cols.map((c) => `<th>${c}</th>`).join('')}<th>检查</th></tr></thead>
+          <tbody>
+            ${preview.rows.slice(0, 12).map((r, i) => `<tr>
+              <td class="muted mono">${i + 1}</td>
+              ${r.cells.map((c) => `<td>${LK.esc(c)}</td>`).join('')}
+              <td>${r.valid ? '<span class="good">✓ 正常</span>' : `<span class="bad">${LK.esc(r.reason)}</span>`}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${preview.rows.length > 12 ? `<div class="small muted" style="padding:6px 2px">仅预览前 12 条，导入时按全部 ${preview.rows.length} 条处理</div>` : ''}`;
+  }
+
+  function splitLine(line) {
+    return line.split(/[,\t，]/).map((s) => s.trim());
+  }
+
+  function buildPreview(matrix, kind, fileName) {
+    let rows = matrix.filter((r) => r && r.some((c) => String(c || '').trim()));
+    // 自动定位表头（兼容带标题行的模板）
+    const headerIdx = rows.slice(0, 5).findIndex((r) => r.some((c) => /^(姓名|奖项名称|奖项|名称|参与者)$/.test(String(c || '').trim())));
+    if (headerIdx >= 0) rows = rows.slice(headerIdx + 1);
+    const mapped = rows.map((cells) => {
+      const c = cells.map((x) => String(x == null ? '' : x).trim());
+      if (kind === 'participants') {
+        const [name, id4, dept, phone] = [c[0], (c[1] || '').toUpperCase(), c[2], c[3]];
+        let valid = true;
+        let reason = '';
+        if (!name) { valid = false; reason = '姓名为空'; }
+        else if (!/^[0-9A-Z]{4}$/.test(id4)) { valid = false; reason = '后四位格式错误'; }
+        return { cells: [name, id4, dept, phone].map((x) => x || ''), valid, reason, raw: { name, id4, dept, phone } };
+      }
+      const [name, level, total, note] = [c[0], c[1], c[2], c[3]];
+      let valid = true;
+      let reason = '';
+      if (!name) { valid = false; reason = '奖项名称为空'; }
+      else if (!/^\d+$/.test(String(total || '')) || Number(total) <= 0) { valid = false; reason = '数量需为正整数'; }
+      return { cells: [name, level, total, note].map((x) => x || ''), valid, reason, raw: { name, level, total: Number(total), note } };
+    });
+    preview = { rows: mapped, kind, fileName };
+    return preview;
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    const name = file.name.toLowerCase();
+    try {
+      if (name.endsWith('.xlsx')) {
+        const buf = await file.arrayBuffer();
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1]);
+          reader.readAsDataURL(new Blob([buf]));
+        });
+        const res = await LK.withPin(() => LK.post('/api/import/parse', { data: base64 }));
+        buildPreview(res.rows, tab, file.name);
+      } else {
+        const text = await file.text();
+        const matrix = text.split(/\r?\n/).map(splitLine);
+        buildPreview(matrix, tab, file.name);
+      }
+      render();
+      LK.toast('文件已解析', 'ok');
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    }
+  }
+
+  async function doImport() {
+    if (!preview || preview.kind !== tab) return LK.toast('请先解析数据', 'err');
+    const rows = preview.rows.filter((r) => r.valid).map((r) => r.raw);
+    if (!rows.length) return LK.toast('没有有效数据', 'err');
+    const mode = $('#modeSel').value;
+    if (mode === 'replace') {
+      const ok = await LK.confirm({
+        title: '覆盖导入确认',
+        desc: '当前活动的' + (tab === 'participants' ? '名单' : '奖项配置') + '将被清空后重新写入，此操作不可撤销。',
+        danger: true,
+        okText: '确认覆盖',
+      });
+      if (!ok) return;
+    }
+    try {
+      const url = tab === 'participants' ? '/api/participants/import' : '/api/prizes/import';
+      const res = await LK.withPin(() => LK.post(url, { activityId: snap.activity.id, rows, mode }));
+      LK.toast(`导入完成：新增 ${res.added} 条${res.skippedCount ? `，跳过 ${res.skippedCount} 条` : ''}`, 'ok');
+      preview = null;
+      pasteText = '';
+      await load();
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    }
+  }
+
+  /* --------------------------- 交互 --------------------------- */
+
+  function addPrizeDialog() {
+    LK.modal({
+      title: '新增奖项',
+      okText: '添加',
+      width: 440,
+      body: `
+        <div class="field"><label>奖项名称</label><input class="input" id="npName" placeholder="例如：三等奖 · 定制保温杯"></div>
+        <div class="row" style="margin-top:12px;gap:12px">
+          <div class="field" style="flex:1"><label>等级</label><input class="input" id="npLevel" placeholder="三等奖"></div>
+          <div class="field" style="width:120px"><label>数量</label><input class="input" id="npTotal" type="number" min="1" value="1"></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label>备注</label><input class="input" id="npNote" placeholder="选填"></div>`,
+      onOk: async (mask, close) => {
+        const name = mask.querySelector('#npName').value.trim();
+        const total = Number(mask.querySelector('#npTotal').value);
+        if (!name) { LK.toast('请填写奖项名称', 'err'); return false; }
+        if (!total || total < 1) { LK.toast('数量需大于 0', 'err'); return false; }
+        await LK.withPin(() => LK.post('/api/prizes/import', {
+          activityId: snap.activity.id,
+          mode: 'append',
+          rows: [{ name, level: mask.querySelector('#npLevel').value, total, note: mask.querySelector('#npNote').value }],
+        }));
+        close();
+        LK.toast('奖项已添加', 'ok');
+        load();
+      },
+    });
+  }
+
+  function editPrizeDialog(id) {
+    const p = snap.prizes.find((x) => x.id === id);
+    if (!p) return;
+    LK.modal({
+      title: '编辑奖项',
+      desc: p.name,
+      okText: '保存',
+      width: 440,
+      body: `
+        <div class="field"><label>奖项名称</label><input class="input" id="epName" value="${LK.esc(p.name)}"></div>
+        <div class="row" style="margin-top:12px;gap:12px">
+          <div class="field" style="flex:1"><label>等级</label><input class="input" id="epLevel" value="${LK.esc(p.level || '')}"></div>
+          <div class="field" style="width:120px"><label>库存总数</label><input class="input" id="epTotal" type="number" min="0" value="${p.total}"></div>
+        </div>
+        <div class="small muted" style="margin-top:10px">已发放 ${p.total - p.remaining} 份，剩余 ${p.remaining} 份</div>`,
+      onOk: async (mask, close) => {
+        await LK.withPin(() => LK.patch(`/api/prizes/${id}`, {
+          name: mask.querySelector('#epName').value,
+          level: mask.querySelector('#epLevel').value,
+          total: Number(mask.querySelector('#epTotal').value),
+        }));
+        close();
+        LK.toast('已保存', 'ok');
+        load();
+      },
+    });
+  }
+
+  async function deletePrize(id) {
+    const p = snap.prizes.find((x) => x.id === id);
+    const ok = await LK.confirm({ title: `删除「${p.name}」？`, desc: '已有发放记录的奖项无法删除。', danger: true, okText: '删除' });
+    if (!ok) return;
+    try {
+      await LK.withPin(() => LK.del(`/api/prizes/${id}`));
+      LK.toast('已删除', 'ok');
+      load();
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    }
+  }
+
+  function editParticipantDialog(id) {
+    const p = snap.participants.find((x) => x.id === id);
+    if (!p) return;
+    LK.modal({
+      title: '编辑参与者',
+      desc: '修改姓名会同步更新已产生的发奖记录',
+      okText: '保存',
+      width: 480,
+      body: `
+        <div class="row" style="gap:12px">
+          <div class="field" style="flex:1"><label>姓名</label><input class="input" id="xpName" value="${LK.esc(p.name)}" maxlength="20"></div>
+          <div class="field" style="width:150px"><label>证件后四位</label><input class="input" id="xpId4" value="${LK.esc(p.id4)}" maxlength="4"></div>
+        </div>
+        <div class="field" style="margin-top:12px"><label>部门 / 门店</label><input class="input" id="xpDept" value="${LK.esc(p.dept || '')}"></div>
+        <div class="field" style="margin-top:12px"><label>手机号</label><input class="input" id="xpPhone" value="${LK.esc(p.phone || '')}"></div>`,
+      onOk: async (mask, close) => {
+        const name = mask.querySelector('#xpName').value.trim();
+        const id4 = mask.querySelector('#xpId4').value.trim().toUpperCase();
+        if (!name) { LK.toast('姓名不能为空', 'err'); return false; }
+        if (!/^[0-9A-Z]{4}$/.test(id4)) { LK.toast('证件后四位需为 4 位字母或数字', 'err'); return false; }
+        await LK.withPin(() => LK.patch(`/api/participants/${id}`, {
+          activityId: snap.activity.id,
+          name,
+          id4,
+          dept: mask.querySelector('#xpDept').value,
+          phone: mask.querySelector('#xpPhone').value,
+        }));
+        close();
+        LK.toast('已保存', 'ok');
+        load();
+      },
+    });
+  }
+
+  async function deleteParticipant(id) {
+    const p = snap.participants.find((x) => x.id === id);
+    const my = snap.awards.filter((w) => w.participantId === id && w.status !== 'void');
+    const ok = await LK.confirm({
+      title: `删除「${p.name}」？`,
+      desc: my.length
+        ? `该参与者有 ${my.length} 条中奖记录，需要先作废记录才能删除。`
+        : '删除后该参与者需要重新导入才能参与抽奖，此操作不可撤销。',
+      danger: true,
+      okText: '删除',
+    });
+    if (!ok) return;
+    try {
+      await LK.withPin(() => LK.del(`/api/participants/${id}?activityId=${snap.activity.id}`));
+      LK.toast('已删除', 'ok');
+      load();
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    }
+  }
+
+  async function resetParticipant(id) {
+    const p = snap.participants.find((x) => x.id === id);
+    const ok = await LK.confirm({ title: `重置「${p.name}」的验证状态？`, desc: '重置后该参与者需要重新扫码验证，已有的中奖记录不受影响。', okText: '重置' });
+    if (!ok) return;
+    await LK.withPin(() => LK.post(`/api/participants/${id}/reset`, { activityId: snap.activity.id }));
+    LK.toast('已重置', 'ok');
+    load();
+  }
+
+  document.addEventListener('click', async (e) => {
+    const tabBtn = e.target.closest('[data-tab]');
+    if (tabBtn) {
+      tab = tabBtn.dataset.tab;
+      preview = null;
+      pasteText = '';
+      render();
+      return;
+    }
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+
+    if (act === 'add-prize') return addPrizeDialog();
+    if (act === 'export-participants') {
+      try {
+        const qs = new URLSearchParams({ activityId: snap.activity.id });
+        if (LK.state.pin) qs.set('pin', LK.state.pin);
+        const res = await fetch(`/api/export-participants.xlsx?${qs}`);
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || '导出失败');
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${snap.activity.name}-参与者名单.xlsx`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        LK.toast('名单已开始下载', 'ok');
+      } catch (err) {
+        LK.toast(err.message, 'err');
+      }
+      return;
+    }
+    if (act === 'edit-prize') return editPrizeDialog(btn.dataset.id);
+    if (act === 'del-prize') return deletePrize(btn.dataset.id);
+    if (act === 'edit-p') return editParticipantDialog(btn.dataset.id);
+    if (act === 'del-p') return deleteParticipant(btn.dataset.id);
+    if (act === 'reset') return resetParticipant(btn.dataset.id);
+    if (act === 'toggle-id') { showId = !showId; render(); return; }
+    if (act === 'clear-preview') { preview = null; render(); return; }
+    if (act === 'parse') {
+      const text = $('#pasteInput').value;
+      if (!text.trim()) return LK.toast('请先粘贴内容或选择文件', 'err');
+      pasteText = text;
+      buildPreview(text.split(/\r?\n/).map(splitLine), tab, '');
+      render();
+      LK.toast(`已解析 ${preview.rows.length} 行`, 'ok');
+      return;
+    }
+    if (act === 'do-import') return doImport();
+  });
+
+  document.addEventListener('input', (e) => {
+    if (e.target.id === 'searchInput') {
+      search = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      const next = $('#searchInput');
+      if (next) {
+        next.focus();
+        next.setSelectionRange(pos, pos);
+      }
+    }
+  });
+
+  document.addEventListener('change', (e) => {
+    if (e.target.id === 'fileInput') handleFile(e.target.files[0]);
+  });
+
+  document.addEventListener('dragover', (e) => {
+    const dz = e.target.closest('#dropzone');
+    if (dz) {
+      e.preventDefault();
+      dz.classList.add('over');
+    }
+  });
+  document.addEventListener('dragleave', (e) => {
+    const dz = e.target.closest('#dropzone');
+    if (dz) dz.classList.remove('over');
+  });
+  document.addEventListener('drop', (e) => {
+    const dz = e.target.closest('#dropzone');
+    if (!dz) return;
+    e.preventDefault();
+    dz.classList.remove('over');
+    handleFile(e.dataTransfer.files[0]);
+  });
+
+  document.addEventListener('click', (e) => {
+    const dz = e.target.closest('#dropzone');
+    if (!dz) return;
+    if (e.target && e.target.id === 'fileInput') return;
+    const input = dz.querySelector('#fileInput');
+    if (input) input.click();
+  });
+
+  /* --------------------------- 启动 --------------------------- */
+
+  (async function () {
+    await LK.ready();
+    if (!LK.state.activityId) {
+      $('#page').innerHTML = '<div class="blank"><h3>还没有活动</h3><p>先到「系统设置」创建活动。</p></div>';
+      return;
+    }
+    await load();
+  })();
+})();
+</script>
+</body>
+</html>

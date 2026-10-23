@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>主持人台 · LUCKY 现场抽奖</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23b93a2c'/><text x='16' y='23' font-size='19' text-anchor='middle' fill='white' font-family='serif'>幸</text></svg>">
+<link rel="stylesheet" href="/assets/app.css">
+<style>
+  .ma-list { max-height: 210px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; margin-top: 8px; }
+  .ma-item { display: flex; align-items: center; gap: 9px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid var(--line-2); }
+  .ma-item:last-child { border-bottom: none; }
+  .ma-item:hover { background: #fbf8f2; }
+  .ma-item.sel { background: var(--gold-soft); }
+  .ma-empty { padding: 18px; text-align: center; color: var(--muted); font-size: 12px; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #e0553f; display: inline-block; animation: pulse 1.6s infinite; }
+  .quick-counts button { width: 40px; height: 36px; padding: 0; }
+  .hist-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px dashed var(--line-2); font-size: 13px; }
+  .hist-row:last-child { border-bottom: none; }
+  .hist-seq { font-family: var(--font-num); font-weight: 600; color: var(--ink-3); width: 34px; font-size: 12px; }
+  .clock { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 500; letter-spacing: .02em; }
+  .qr-mini { width: 92px; height: 92px; }
+  .qr-mini svg { width: 100%; height: 100%; display: block; }
+  .round-actions { flex-wrap: wrap; }
+  .round-hero .rh-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 640px) {
+    .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .round-actions .spacer { display: none; }
+    .round-actions .rollback { margin-left: auto; }
+    .round-actions .btn-end { flex: 1 1 100%; }
+    .round-hero .rh-nums { gap: 18px; }
+    .round-hero .rh-nums b { font-size: 21px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" id="sidebar"></aside>
+  <div class="main">
+    <header class="topbar" id="topbar"></header>
+    <div class="page" id="page">
+      <div class="empty">正在载入…</div>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/qrcode.js"></script>
+<script src="/assets/app.js"></script>
+<script>
+(function () {
+  let snap = null;
+  let stream = null;
+  let refreshTimer = null;
+  let lastAwardId = null;
+  let boot = null;
+  let actionBusy = false;
+
+  const $ = (sel) => document.querySelector(sel);
+
+  async function load(showError = true) {
+    try {
+      snap = await LK.get(`/api/activities/${LK.state.activityId}/snapshot`);
+      render();
+    } catch (err) {
+      if (showError) LK.toast(err.message, 'err');
+    }
+  }
+
+  function scheduleLoad() {
+    if (refreshTimer) return;
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      load(false);
+    }, 350);
+  }
+
+  function statusChip(status) {
+    return `<span class="chip ${status}">${status === 'live' ? '<i class="pulse"></i>' : ''}${LK.STATUS_TEXT[status] || ''}</span>`;
+  }
+
+  function statGrid() {
+    const s = snap.stats;
+    return `
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="k">参与者</div>
+          <div class="v">${s.totalParticipants}<small>人</small></div>
+          <div class="d">名单总人数</div>
+        </div>
+        <div class="stat">
+          <div class="k">已通过验证</div>
+          <div class="v">${s.verifiedCount}<small>人</small></div>
+          <div class="d">验证率 ${s.totalParticipants ? Math.round((s.verifiedCount / s.totalParticipants) * 100) : 0}%</div>
+        </div>
+        <div class="stat">
+          <div class="k">当前可参与</div>
+          <div class="v">${snap.eligibleCount}<small>人</small></div>
+          <div class="d">${snap.activity.settings.allowDuplicateWin ? '允许重复中奖' : '已中奖者不再进入抽选池'}</div>
+        </div>
+        <div class="stat accent">
+          <div class="k">已产生中奖</div>
+          <div class="v">${s.totalAwards}<small>份</small></div>
+          <div class="d">${s.uniqueWinners} 位中奖人 · ${s.pendingAwards} 份待揭晓</div>
+        </div>
+      </div>`;
+  }
+
+  function prizeOptions() {
+    return snap.prizes
+      .map((p) => `<option value="${p.id}" ${p.remaining <= 0 ? 'disabled' : ''}>${LK.esc(p.name)}　剩余 ${p.remaining} / ${p.total}</option>`)
+      .join('');
+  }
+
+  function launchCard() {
+    if (snap.openRound) return openRoundCard();
+
+    const hasPeople = snap.stats.verifiedCount > 0;
+    const hasPrize = snap.prizes.some((p) => p.remaining > 0);
+    const blocked = !hasPeople || !hasPrize || snap.activity.status === 'draft';
+
+    let note;
+    if (snap.activity.status === 'draft') note = '活动尚未开启扫码，请先点击右上角「开启扫码」';
+    else if (!hasPeople) note = '还没有参与者通过验证，请让参与者先扫码验证';
+    else if (!hasPrize) note = '没有可用奖项，请先导入奖项';
+    else note = `将从 ${snap.eligibleCount} 位可参与参与者中随机分配`;
+
+    return `
+      <div class="card">
+        <div class="card-head">
+          <h2>开启新一轮</h2>
+          <span class="hint">第 ${(snap.rounds[0] ? snap.rounds[0].seq : 0) + 1} 轮</span>
+        </div>
+        <div class="card-body">
+          <div class="field">
+            <label>本轮奖项</label>
+            <select class="select" id="prizeSel">${prizeOptions()}</select>
+          </div>
+          <div class="launch-grid" style="margin-top:14px">
+            <div class="field">
+              <label>抽取人数</label>
+              <input class="input count-input" id="countInput" type="number" min="1" value="1">
+            </div>
+            <div class="field">
+              <label>快捷选择</label>
+              <div class="row quick-counts">
+                <button class="btn" data-act="count" data-count="1">1</button>
+                <button class="btn" data-act="count" data-count="3">3</button>
+                <button class="btn" data-act="count" data-count="5">5</button>
+              </div>
+            </div>
+          </div>
+          <div class="launch-note" style="margin:14px 0 16px">
+            ${LK.icon('info', 14)} ${note}
+          </div>
+          <button class="btn btn-red btn-lg btn-block" data-act="open-round" ${blocked ? 'disabled' : ''}>
+            ${LK.icon('sparkles', 17)} 分配奖项 · 开放刮卡
+          </button>
+          <div class="small muted" style="margin-top:10px;text-align:center">
+            开奖瞬间即锁定名额，参与者手机端出现刮刮卡，大屏同步进入揭晓状态
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function openRoundCard() {
+    const r = snap.openRound;
+    const p = snap.progress;
+    const pct = p.assigned ? Math.round((p.revealed / p.assigned) * 100) : 0;
+    return `
+      <div class="card">
+        <div class="card-head">
+          <h2>本轮进行中</h2>
+          <span class="hint"><span class="live-dot"></span> 等待参与者刮卡</span>
+        </div>
+        <div class="card-body">
+          <div class="round-hero">
+            <div class="rh-top">第 ${r.seq} 轮 · LIVE</div>
+            <div class="rh-prize">${LK.esc(r.prizeName)}</div>
+            <div class="rh-meta">${LK.fmtTime(r.openedAt)} 开启 · 参与池 ${r.poolSize} 人 · 抽奖凭证 ${r.proof}</div>
+            <div class="rh-nums">
+              <div><b>${p.revealed}</b><span>已揭晓</span></div>
+              <div><b>${p.pending}</b><span>待揭晓</span></div>
+              <div><b>${p.scratched}</b><span>未中奖刮卡</span></div>
+              <div><b>${r.count}</b><span>本轮名额</span></div>
+            </div>
+          </div>
+          <div style="margin:16px 0 6px" class="progress red"><i style="width:${pct}%"></i></div>
+          <div class="row small muted" style="margin-bottom:16px">
+            <span>揭晓进度 ${pct}%</span>
+            <div class="spacer"></div>
+            <span>${p.pending > 0 ? `还有 ${p.pending} 位未刮卡` : '本轮全部揭晓'}</span>
+          </div>
+          <div class="row round-actions">
+            <button class="btn" data-act="copy-winners">${LK.icon('copy', 14)} 复制名单</button>
+            <button class="btn" data-act="screen">${LK.icon('monitor', 14)} 看大屏</button>
+            <div class="spacer"></div>
+            <button class="btn btn-sm btn-ghost rollback" style="color:var(--red)" data-act="rollback" data-id="${r.id}">撤销本轮</button>
+            <button class="btn btn-primary btn-end" data-act="close-round">${LK.icon('check', 15)} 结束本轮</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function awardRows(roundAwards) {
+    if (!roundAwards.length) return `<div class="empty" style="padding:24px">本轮还没有分配记录</div>`;
+    return roundAwards
+      .map(
+        (w) => `
+      <div class="hist-row">
+        ${LK.avatar(w.participantName)}
+        <div style="min-width:0">
+          <div style="font-weight:500">${LK.esc(w.participantName)}</div>
+          <div class="small muted">${LK.esc(w.participantDept || '—')}</div>
+        </div>
+        <div class="spacer"></div>
+        ${w.status === 'revealed'
+          ? '<span class="chip red">已揭晓</span>'
+          : w.status === 'pending'
+            ? '<span class="chip gold">待刮卡</span>'
+            : '<span class="chip">已作废</span>'}
+        ${w.status !== 'void' ? `
+          <div class="ops">
+            <button class="btn btn-sm" data-act="void" data-id="${w.id}">异常处理</button>
+          </div>` : ''}
+      </div>`
+      )
+      .join('');
+  }
+
+  function currentRoundAwards() {
+    if (!snap.openRound) return [];
+    return snap.awards
+      .filter((w) => w.roundId === snap.openRound.id && w.prizeId === snap.openRound.prizeId)
+      .sort((a, b) => a.assignedAt - b.assignedAt);
+  }
+
+  function feedCard() {
+    const logs = (snap.logs || [])
+      .filter((l) => ['verify.success', 'award.revealed', 'round.open', 'round.close', 'award.manual', 'award.void', 'award.redraw'].includes(l.action))
+      .slice(0, 8);
+
+    const iconFor = (a) => {
+      if (a === 'verify.success') return '<span style="color:#2b7357">✓</span>';
+      if (a === 'award.revealed') return '<span style="color:#b93a2c">★</span>';
+      if (a === 'round.open') return '<span style="color:#b1843c">◉</span>';
+      return '<span style="color:#8d9099">•</span>';
+    };
+
+    return `
+      <div class="card">
+        <div class="card-head"><h2>现场动态</h2><span class="hint">验证与揭晓实时同步</span></div>
+        <div class="card-body tight" style="padding:6px 22px 12px">
+          ${logs.length ? logs.map((l) => `
+            <div class="feed-item">
+              <div style="width:20px;text-align:center;font-size:13px">${iconFor(l.action)}</div>
+              <div class="txt">${LK.esc(l.detail)}</div>
+              <div class="time">${LK.fmtTime(l.ts)}</div>
+            </div>`).join('') : `<div class="empty" style="padding:24px">等待第一位参与者验证…</div>`}
+        </div>
+      </div>`;
+  }
+
+  function prizesCard() {
+    return `
+      <div class="card">
+        <div class="card-head">
+          <h2>奖项库存</h2>
+          <span class="hint">${snap.prizes.length} 项</span>
+        </div>
+        <div class="card-body" style="padding:8px 22px 12px">
+          ${snap.prizes.length ? snap.prizes.map((p) => {
+            const used = p.total - p.remaining;
+            const pct = p.total ? Math.round((used / p.total) * 100) : 0;
+            return `
+              <div class="prize-row">
+                <div style="flex:1;min-width:0">
+                  <div class="pname">${LK.esc(p.name)}</div>
+                  <div class="pmeta">${LK.esc(p.level || '—')} · 已发 ${used}</div>
+                </div>
+                <div class="pbar"><div class="progress"><i style="width:${pct}%"></i></div></div>
+                <div class="pnum">${p.remaining}<small>/${p.total}</small></div>
+                <button class="btn btn-sm btn-ghost" data-act="edit-prize" data-id="${p.id}" title="调整库存">${LK.icon('edit', 13)}</button>
+              </div>`;
+          }).join('') : `<div class="empty" style="padding:24px">还没有奖项，<a href="/import" style="color:#b93a2c">去导入</a></div>`}
+          <div class="row" style="margin-top:14px;gap:8px">
+            <button class="btn btn-sm" data-act="manual-award">${LK.icon('plus', 13)} 人工补发</button>
+            <button class="btn btn-sm btn-ghost" data-act="goto-import">管理奖项</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function qrCard() {
+    const url = LK.joinUrl(snap.activity.code);
+    return `
+      <div class="card">
+        <div class="card-head"><h2>参与者入口</h2><span class="hint">大屏可投此码</span></div>
+        <div class="card-body">
+          <div class="qr-card">
+            <div class="qr-box qr-mini">${LK.qrSvg(url)}</div>
+            <div style="flex:1;min-width:0">
+              <div class="small muted">活动码</div>
+              <div class="code-tag">${snap.activity.code}</div>
+              <div class="small muted" style="margin-top:6px;word-break:break-all">${LK.esc(url)}</div>
+              <div class="row" style="margin-top:10px;gap:6px">
+                <button class="btn btn-sm" data-act="copy-link">${LK.icon('copy', 13)} 复制</button>
+                <button class="btn btn-sm btn-ghost" data-act="screen">看大屏</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function historyCard() {
+    const rounds = snap.rounds || [];
+    if (!rounds.length) return '';
+    const latestSeq = Math.max(...rounds.map((r) => r.seq));
+    return `
+      <div class="card">
+        <div class="card-head"><h2>轮次记录</h2><span class="hint">共 ${rounds.length} 轮</span></div>
+        <div class="table-wrap">
+          <table class="tbl">
+            <thead><tr><th>轮次</th><th>奖项</th><th>分配 / 揭晓</th><th>状态</th><th>开启时间</th><th>凭证</th><th></th></tr></thead>
+            <tbody>
+              ${rounds.slice(0, 8).map((r) => {
+                const ra = snap.awards.filter((w) => w.roundId === r.id);
+                return `<tr>
+                  <td class="mono">#${r.seq}</td>
+                  <td>${LK.esc(r.prizeName)}</td>
+                  <td class="mono">${ra.length} / ${ra.filter((w) => w.status === 'revealed').length}</td>
+                  <td>${r.status === 'open' ? '<span class="chip live"><i class="pulse"></i>进行中</span>' : '<span class="chip">已结束</span>'}</td>
+                  <td class="small muted mono">${LK.fmtFull(r.openedAt)}</td>
+                  <td class="small muted mono">${LK.esc(r.proof || '—')}</td>
+                  <td style="text-align:right">${r.seq === latestSeq ? `<button class="btn btn-sm btn-ghost" style="color:var(--red)" data-act="rollback" data-id="${r.id}">撤销</button>` : ''}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  function render() {
+    if (!snap) return;
+    const activeEl = document.activeElement;
+    const activeId = activeEl && activeEl.id;
+    const countVal = $('#countInput') ? $('#countInput').value : null;
+    const prizeVal = $('#prizeSel') ? $('#prizeSel').value : null;
+
+    LK.mountShell({ active: 'host', title: '主持人台', sub: `${LK.esc(snap.activity.name)} · 活动码 ${snap.activity.code}`, actions: '' });
+    const tb = $('#topbar');
+    tb.innerHTML = `<div><h1>主持人台</h1><div class="sub">${LK.esc(snap.activity.name)} · 活动码 ${snap.activity.code}</div></div>
+      <div class="topbar-actions">
+        <div class="clock" id="clock">${LK.fmtTime(Date.now())}</div>
+        <span class="chip ${snap.activity.status}">${snap.activity.status === 'live' ? '<i class="pulse"></i>' : ''}${LK.STATUS_TEXT[snap.activity.status]}</span>
+        <button class="btn btn-sm" data-act="screen">${LK.icon('monitor', 14)} 现场大屏</button>
+        <button class="btn btn-sm" data-act="export">${LK.icon('download', 14)} 导出</button>
+        <button class="btn btn-sm ${snap.activity.status === 'live' ? '' : 'btn-primary'}" data-act="toggle-status">
+          ${snap.activity.status === 'live' ? '暂停扫码' : snap.activity.status === 'closed' ? '重新开启' : '开启扫码'}
+        </button>
+      </div>`;
+
+    let banner = '';
+    if (!snap.stats.totalParticipants) {
+      banner = `<div class="banner red" style="margin-bottom:18px">${LK.icon('alert')} 还没有参与者名单。请先前往 <a href="/import" style="text-decoration:underline;font-weight:600">名单与奖项</a> 导入名单，再开始抽奖。</div>`;
+    } else if (!snap.prizes.length) {
+      banner = `<div class="banner" style="margin-bottom:18px">${LK.icon('alert')} 还没有配置奖项，导入奖项后才能分配名额。</div>`;
+    }
+
+    $('#page').innerHTML = `
+      ${banner}
+      ${statGrid()}
+      <div class="grid-2">
+        <div style="display:flex;flex-direction:column;gap:18px">
+          ${launchCard()}
+          ${feedCard()}
+          ${historyCard()}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:18px">
+          ${prizesCard()}
+          ${snap.openRound ? `<div class="card">
+            <div class="card-head"><h2>本轮名单</h2><span class="hint">${currentRoundAwards().length} 人</span></div>
+            <div class="card-body" style="padding:4px 22px 10px">${awardRows(currentRoundAwards())}</div>
+          </div>` : ''}
+          ${qrCard()}
+        </div>
+      </div>`;
+
+    if (countVal !== null && $('#countInput')) $('#countInput').value = countVal;
+    if (prizeVal && $('#prizeSel')) $('#prizeSel').value = prizeVal;
+    if (activeId && $('#' + activeId)) {
+      const el = $('#' + activeId);
+      if (el.tagName === 'INPUT' || el.tagName === 'SELECT') {
+        el.focus();
+        if (el.setSelectionRange) try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {}
+      }
+    }
+  }
+
+  /* ---------------------------- 操作 ---------------------------- */
+
+  async function openRound() {
+    const prizeId = $('#prizeSel').value;
+    const count = Number($('#countInput').value);
+    const prize = snap.prizes.find((p) => p.id === prizeId);
+    if (!prize) return LK.toast('请选择奖项', 'err');
+    if (!count || count < 1) return LK.toast('请输入抽取人数', 'err');
+
+    const ok = await LK.confirm({
+      title: `分配 ${count} 个「${prize.name}」`,
+      desc: `系统将从 ${snap.eligibleCount} 位可参与参与者中随机抽出 ${count} 位，并立即开放刮卡。开奖后不可撤销（可作废单个名额）。`,
+      okText: '确认开奖',
+      danger: true,
+    });
+    if (!ok) return;
+    if (actionBusy) return;
+    actionBusy = true;
+    try {
+      const res = await LK.withPin(() => LK.post('/api/rounds', { activityId: snapshotId(), prizeId, count }));
+      LK.toast(`第 ${res.round.seq} 轮已开启，等待参与者刮卡`, 'ok');
+      load();
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    } finally {
+      actionBusy = false;
+    }
+  }
+
+  function snapshotId() {
+    return snap.activity.id;
+  }
+
+  async function closeRound() {
+    if (!snap.openRound) return;
+    const pending = snap.progress.pending;
+    const ok = await LK.confirm({
+      title: '结束本轮？',
+      desc: pending > 0
+        ? `本轮还有 <b style="color:#b93a2c">${pending}</b> 个奖项未被揭晓。结束后这些名额将作废并归还库存，未刮卡的参与者将看到本轮已结束。`
+        : '本轮所有奖项均已揭晓，结束后将进入结果留档。',
+      okText: pending > 0 ? '结束并作废剩余名额' : '结束本轮',
+      danger: pending > 0,
+    });
+    if (!ok) return;
+    if (actionBusy) return;
+    actionBusy = true;
+    try {
+      await LK.withPin(() => LK.post(`/api/rounds/${snap.openRound.id}/close`, { activityId: snapshotId(), voidPending: pending > 0 }));
+      LK.toast('本轮已结束，结果已留档', 'ok');
+      load();
+    } catch (err) {
+      if (err.status === 409) {
+        LK.toast('状态已变化，请刷新后重试', 'err');
+        load();
+      } else LK.toast(err.message, 'err');
+    } finally {
+      actionBusy = false;
+    }
+  }
+
+  function voidDialog(awardId) {
+    const award = snap.awards.find((w) => w.id === awardId);
+    if (!award) return;
+    LK.modal({
+      title: '异常处理',
+      desc: `${award.participantName} · ${award.prizeName}`,
+      okText: '确认作废',
+      width: 440,
+      body: `
+        <div class="field"><label>作废原因</label>
+          <select class="select" id="voidReason">
+            <option>中奖人不在现场</option>
+            <option>身份信息有误</option>
+            <option>重复中奖需回收</option>
+            <option>参与者主动放弃</option>
+            <option>其他（备注说明）</option>
+          </select>
+        </div>
+        <label class="row" style="margin-top:14px;gap:8px;font-size:13px">
+          <input type="checkbox" id="voidRedraw" checked style="accent-color:#b93a2c">
+          <span>立即从可参与名单中补抽一位</span>
+        </label>
+        <div class="banner" style="margin-top:14px">${LK.icon('info')} 作废后名额会归还库存，补抽会重新占用一个名额，全过程记录在操作日志。</div>`,
+      onOk: async (mask, close) => {
+        const reason = mask.querySelector('#voidReason').value;
+        const redraw = mask.querySelector('#voidRedraw').checked;
+        const res = await LK.withPin(() => LK.post(`/api/awards/${awardId}/void`, { activityId: snapshotId(), reason, redraw }));
+        close();
+        LK.toast(res.replacement ? `已作废，并补抽给 ${res.replacement.participantName}` : '已作废并归还库存', 'ok');
+        load();
+      },
+    });
+  }
+
+  function manualAwardDialog() {
+    const available = snap.prizes.filter((p) => p.remaining > 0);
+    if (!available.length) return LK.toast('没有剩余库存的奖项', 'err');
+
+    const participants = snap.participants.slice().sort((a, b) => Number(!!b.verifiedAt) - Number(!!a.verifiedAt));
+    let selected = null;
+
+    const modal = LK.modal({
+      title: '人工补发',
+      desc: '用于现场特殊情况：设备异常、网络中断、临时嘉宾等',
+      okText: '确认补发',
+      width: 520,
+      body: `
+        <div class="field"><label>奖项</label>
+          <select class="select" id="maPrize">
+            ${available.map((p) => `<option value="${p.id}">${LK.esc(p.name)}　剩余 ${p.remaining}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" style="margin-top:14px"><label>选择参与者</label>
+          <input class="input" id="maSearch" placeholder="输入姓名或部门搜索">
+          <div class="ma-list" id="maList"></div>
+        </div>
+        <div class="field" style="margin-top:14px"><label>备注</label>
+          <input class="input" id="maNote" placeholder="例如：网络异常，主持人代为发放">
+        </div>`,
+      onOk: async (mask, close) => {
+        if (!selected) {
+          LK.toast('请先选择参与者', 'err');
+          return false;
+        }
+        const prizeId = mask.querySelector('#maPrize').value;
+        const note = mask.querySelector('#maNote').value;
+        await LK.withPin(() => LK.post('/api/awards/manual', {
+          activityId: snapshotId(),
+          prizeId,
+          participantId: selected.id,
+          note,
+        }));
+        close();
+        LK.toast(`已补发给 ${selected.name}`, 'ok');
+        load();
+      },
+    });
+
+    const list = modal.mask.querySelector('#maList');
+    const search = modal.mask.querySelector('#maSearch');
+
+    const paint = (kw) => {
+      const q = (kw || '').trim().toLowerCase();
+      const rows = participants
+        .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.dept || '').toLowerCase().includes(q) || (p.phone || '').includes(q))
+        .slice(0, 40);
+      list.innerHTML = rows.length
+        ? rows.map((p) => `<div class="ma-item ${selected && selected.id === p.id ? 'sel' : ''}" data-id="${p.id}">
+            ${LK.avatar(p.name, 26)}
+            <div style="min-width:0"><div style="font-size:13px">${LK.esc(p.name)}</div>
+            <div class="small muted">${LK.esc(p.dept || '—')}${p.verifiedAt ? '' : ' · 未验证'}</div></div>
+          </div>`).join('')
+        : `<div class="ma-empty">没有匹配的参与者</div>`;
+    };
+
+    list.onclick = (e) => {
+      const item = e.target.closest('.ma-item');
+      if (!item) return;
+      selected = participants.find((p) => p.id === item.dataset.id);
+      paint(search.value);
+      search.value = selected.name;
+    };
+    search.oninput = () => {
+      selected = null;
+      paint(search.value);
+    };
+    paint('');
+  }
+
+  function editPrizeDialog(prizeId) {
+    const p = snap.prizes.find((x) => x.id === prizeId);
+    if (!p) return;
+    LK.modal({
+      title: '调整奖项',
+      desc: p.name,
+      okText: '保存',
+      width: 420,
+      body: `
+        <div class="field"><label>奖项名称</label><input class="input" id="epName" value="${LK.esc(p.name)}"></div>
+        <div class="field" style="margin-top:12px"><label>库存总数</label><input class="input" id="epTotal" type="number" min="0" value="${p.total}"></div>
+        <div class="small muted" style="margin-top:10px">已发放 ${p.total - p.remaining} 份，剩余 ${p.remaining} 份。总数不能小于已发放数量。</div>`,
+      onOk: async (mask, close) => {
+        await LK.withPin(() => LK.patch(`/api/prizes/${prizeId}`, {
+          name: mask.querySelector('#epName').value,
+          total: Number(mask.querySelector('#epTotal').value),
+        }));
+        close();
+        LK.toast('已更新', 'ok');
+        load();
+      },
+    });
+  }
+
+  async function toggleStatus() {
+    const next = snap.activity.status === 'live' ? 'closed' : 'live';
+    const ok = await LK.confirm({
+      title: next === 'live' ? '开启扫码验证？' : '暂停扫码？',
+      desc: next === 'live'
+        ? '参与者可以扫码进入，用「姓名 + 证件后四位」完成身份验证，进入抽奖池。'
+        : '新的参与者将无法进入验证页面，已通过的参与者仍可继续当前轮次。',
+      okText: next === 'live' ? '开启' : '暂停',
+    });
+    if (!ok) return;
+    try {
+      await LK.withPin(() => LK.patch(`/api/activities/${snapshotId()}`, { status: next }));
+      LK.toast(next === 'live' ? '扫码已开启' : '扫码已暂停', 'ok');
+      load();
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    }
+  }
+
+  async function rollbackDialog(roundId) {
+    const r = snap.rounds.find((x) => x.id === roundId);
+    if (!r) return;
+    const awards = snap.awards.filter((w) => w.roundId === roundId && w.status !== 'void');
+    const names = awards.map((a) => `${a.participantName}${a.status === 'pending' ? '（未刮卡）' : ''}`);
+    const ok = await LK.confirm({
+      title: `撤销第 ${r.seq} 轮？`,
+      desc: `将删除本轮「${r.prizeName}」的 ${awards.length} 条发奖记录，归还 ${awards.length} 个库存名额，轮次号回收。此操作不可撤销，已导出的文件不会同步更新。`,
+      extra: names.length
+        ? `<div class="banner red">${LK.icon('alert')} <div>原中奖名单：${names.map((n) => LK.esc(n)).join('、')}</div></div>`
+        : '',
+      danger: true,
+      okText: '确认撤销',
+    });
+    if (!ok) return;
+    if (actionBusy) return;
+    actionBusy = true;
+    try {
+      await LK.withPin(() => LK.post(`/api/rounds/${roundId}/rollback`, { activityId: snapshotId() }));
+      LK.toast('本轮已撤销，名额已归还库存', 'ok');
+      load();
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    } finally {
+      actionBusy = false;
+    }
+  }
+
+  function copyWinners() {
+    const rows = currentRoundAwards().filter((w) => w.status !== 'void');
+    if (!rows.length) return LK.toast('本轮还没有中奖名单', 'err');
+    const text = `第 ${snap.openRound.seq} 轮 · ${snap.openRound.prizeName}\n` +
+      rows.map((w, i) => `${i + 1}. ${w.participantName}（${w.participantDept || '—'}）${w.status === 'revealed' ? '' : ' [未刮卡]'}`).join('\n');
+    LK.copy(text);
+  }
+
+  async function exportXlsx() {
+    try {
+      const qs = new URLSearchParams({ activityId: snapshotId() });
+      if (LK.state.pin) qs.set('pin', LK.state.pin);
+      const res = await fetch(`/api/export.xlsx?${qs}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.code === 'PIN_REQUIRED') {
+          const ok = await LK.askPin();
+          if (ok) return exportXlsx();
+        }
+        throw new Error(data.error || '导出失败');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${snap.activity.name}-中奖记录.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      LK.toast('Excel 已开始下载', 'ok');
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    }
+  }
+
+  /* ---------------------------- 事件绑定 ---------------------------- */
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+
+    if (act === 'open-round') return openRound();
+    if (act === 'close-round') return closeRound();
+    if (act === 'rollback') return rollbackDialog(btn.dataset.id);
+    if (act === 'toggle-status') return toggleStatus();
+    if (act === 'copy-winners') return copyWinners();
+    if (act === 'export') return exportXlsx();
+    if (act === 'screen') return window.open('/screen', '_blank');
+    if (act === 'copy-link') return LK.copy(LK.joinUrl(snap.activity.code));
+    if (act === 'goto-import') return (location.href = '/import');
+    if (act === 'manual-award') return manualAwardDialog();
+    if (act === 'void') return voidDialog(btn.dataset.id);
+    if (act === 'edit-prize') return editPrizeDialog(btn.dataset.id);
+    if (act === 'count') {
+      const input = $('#countInput');
+      if (input) input.value = btn.dataset.count;
+    }
+  });
+
+  $('#page').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id === 'countInput') openRound();
+  });
+
+  /* ---------------------------- 启动 ---------------------------- */
+
+  (async function boot_() {
+    try {
+      boot = await LK.ready();
+      if (!LK.state.activityId) {
+        $('#page').innerHTML = `<div class="blank"><h3>还没有活动</h3><p>先创建一个活动，再导入名单与奖项。</p><button class="btn btn-primary" style="margin-top:18px" data-act="create-act">创建活动</button></div>`;
+        return;
+      }
+      await load();
+      stream = LK.stream(LK.state.activityId, (evt) => {
+        if (evt.type === 'award.revealed') {
+          if (navigator.vibrate) navigator.vibrate([12, 40, 18]);
+          LK.toast(`${evt.award.participantName} 刮开了 ${evt.award.prizeName}`, 'ok');
+        }
+        if (evt.type === 'round.opened') LK.toast('新一轮已开启', 'ok');
+        scheduleLoad();
+      });
+      setInterval(() => {
+        const c = document.getElementById('clock');
+        if (c) c.textContent = LK.fmtTime(Date.now());
+      }, 20_000);
+    } catch (err) {
+      LK.toast(err.message, 'err');
+    }
+  })();
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-act="create-act"]')) {
+      LK.createActivityFlow().then(() => location.reload());
+    }
+  });
+})();
+</script>
+</body>
+</html>

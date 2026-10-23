@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中奖登记表 · LUCKY</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23b93a2c'/><text x='16' y='23' font-size='19' text-anchor='middle' fill='white' font-family='serif'>幸</text></svg>">
+<style>
+  :root {
+    --ink: #16171b;
+    --ink-2: #454a52;
+    --muted: #7c8088;
+    --line: #d9d5ca;
+    --paper: #f2efe8;
+    --red: #b93a2c;
+    --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-display: "Songti SC", "Noto Serif SC", "STSong", serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+
+  .toolbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 28px; background: rgba(245,242,236,.9);
+    border-bottom: 1px solid var(--line); backdrop-filter: blur(8px);
+  }
+  .toolbar .t { font-size: 14px; font-weight: 600; }
+  .toolbar .s { font-size: 12px; color: var(--muted); }
+  .toolbar .sp { flex: 1; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 15px;
+    border-radius: 9px; border: 1px solid var(--line); background: #fff; color: var(--ink);
+    font-size: 13px; text-decoration: none; cursor: pointer; font-family: inherit;
+  }
+  .btn:hover { border-color: #c9c2b2; }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+  .sheet {
+    width: 210mm; min-height: 297mm; margin: 24px auto 60px; background: #fff;
+    padding: 16mm 14mm 14mm; box-shadow: 0 20px 60px -30px rgba(22,23,27,.35);
+  }
+  .doc-head { display: flex; align-items: flex-start; gap: 12px; border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
+  .doc-mark {
+    width: 30px; height: 30px; border-radius: 6px; background: var(--red); color: #fff;
+    display: grid; place-items: center; font-family: var(--font-display); font-size: 16px; flex: 0 0 auto;
+  }
+  .doc-title { font-family: var(--font-display); font-size: 21px; letter-spacing: .04em; line-height: 1.3; }
+  .doc-sub { font-size: 10.5px; color: var(--muted); margin-top: 3px; letter-spacing: .02em; }
+  .doc-meta { margin-left: auto; text-align: right; font-size: 10px; color: var(--muted); line-height: 1.8; }
+  .doc-meta b { color: var(--ink); font-weight: 500; }
+
+  .summary { display: flex; gap: 22px; margin: 12px 0 14px; font-size: 10.5px; color: var(--muted); }
+  .summary b { color: var(--ink); font-size: 13px; font-weight: 600; margin-right: 3px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+  thead { display: table-header-group; }
+  th, td { border: 1px solid var(--line); padding: 7px 8px; text-align: left; vertical-align: middle; }
+  th { background: #f6f3ec; font-weight: 500; font-size: 10px; color: var(--ink-2); letter-spacing: .02em; }
+  tr { page-break-inside: avoid; }
+  td.num, th.num { text-align: center; width: 34px; color: var(--muted); }
+  td.prize { font-weight: 500; }
+  td.sign { width: 92px; }
+  .level-row td {
+    background: #fbf8f0; font-weight: 600; font-size: 10.5px; letter-spacing: .06em; color: #7a5a22;
+  }
+  .foot-sign { display: flex; gap: 40px; margin-top: 26px; font-size: 10.5px; color: var(--ink-2); }
+  .foot-sign div { flex: 1; border-bottom: 1px solid var(--line); padding-bottom: 26px; }
+  .foot-note { margin-top: 10px; font-size: 9.5px; color: var(--muted); line-height: 1.8; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 0; font-size: 12px; }
+
+  @media print {
+    body { background: #fff; }
+    .toolbar { display: none; }
+    .sheet { width: auto; min-height: auto; margin: 0; padding: 0; box-shadow: none; }
+    @page { size: A4 portrait; margin: 14mm 12mm; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <div>
+    <div class="t">中奖登记表</div>
+    <div class="s">用于现场发奖签字，按 Ctrl/Cmd + P 打印</div>
+  </div>
+  <div class="sp"></div>
+  <a class="btn" href="/reports">返回报表</a>
+  <button class="btn primary" onclick="window.print()">打印 / 存为 PDF</button>
+</div>
+
+<div class="sheet" id="sheet">
+  <div class="empty">正在生成…</div>
+</div>
+
+<script src="/assets/app.js"></script>
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+
+  function fmt(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  (async function () {
+    try {
+      await LK.ready();
+      if (!LK.state.activityId) {
+        $('#sheet').innerHTML = '<div class="empty">还没有活动</div>';
+        return;
+      }
+      const snap = await LK.get(`/api/activities/${LK.state.activityId}/snapshot`);
+      const act = snap.activity;
+
+      const rows = snap.awards
+        .filter((w) => w.status === 'revealed')
+        .sort((a, b) => {
+          const pa = snap.prizes.findIndex((p) => p.id === a.prizeId);
+          const pb = snap.prizes.findIndex((p) => p.id === b.prizeId);
+          if (pa !== pb) return pa - pb;
+          return (a.revealedAt || a.assignedAt) - (b.revealedAt || b.assignedAt);
+        });
+
+      const total = rows.length;
+      const now = new Date();
+      const dateStr = `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日`;
+
+      let body = '';
+      let lastPrize = null;
+      let index = 0;
+      for (const w of rows) {
+        if (w.prizeId !== lastPrize) {
+          lastPrize = w.prizeId;
+          const count = rows.filter((x) => x.prizeId === w.prizeId).length;
+          body += `<tr class="level-row"><td colspan="7">${LK.esc(w.prizeName)}　共 ${count} 位</td></tr>`;
+        }
+        index++;
+        body += `<tr>
+          <td class="num">${index}</td>
+          <td class="prize">${LK.esc(w.prizeName)}</td>
+          <td>${LK.esc(w.participantName)}</td>
+          <td>${LK.esc(w.participantDept || '—')}</td>
+          <td>${LK.esc(w.participantPhone || '—')}</td>
+          <td>${fmt(w.revealedAt || w.assignedAt)}</td>
+          <td class="sign"></td>
+        </tr>`;
+      }
+
+      $('#sheet').innerHTML = `
+        <div class="doc-head">
+          <div class="doc-mark">幸</div>
+          <div>
+            <div class="doc-title">${LK.esc(act.name)} · 中奖登记表</div>
+            <div class="doc-sub">LUCKY 现场抽奖 · 领奖签字确认单</div>
+          </div>
+          <div class="doc-meta">
+            活动码 <b>${act.code}</b><br>
+            打印日期 <b>${dateStr}</b>
+          </div>
+        </div>
+
+        <div class="summary">
+          <span><b>${total}</b>位中奖人</span>
+          <span><b>${new Set(rows.map((r) => r.prizeId)).size}</b>个奖项</span>
+          <span><b>${total}</b>份奖品</span>
+        </div>
+
+        ${total ? `<table>
+          <thead>
+            <tr>
+              <th class="num">#</th>
+              <th style="width:22%">奖项</th>
+              <th style="width:12%">姓名</th>
+              <th style="width:20%">部门 / 门店</th>
+              <th style="width:15%">手机号</th>
+              <th style="width:12%">揭晓时间</th>
+              <th class="sign">领奖签字</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>` : `<div class="empty">还没有已揭晓的中奖记录</div>`}
+
+        <div class="foot-sign">
+          <div>主持人签字</div>
+          <div>监督人签字</div>
+          <div>日期</div>
+        </div>
+        <div class="foot-note">
+          说明：本表仅列出已揭晓的中奖记录，作废名额不计入。领奖人须凭中奖页面或有效证件签字领取，签字后视为奖品已交付。
+        </div>`;
+    } catch (err) {
+      $('#sheet').innerHTML = `<div class="empty">${LK.esc(err.message)}</div>`;
+    }
+  })();
+})();
+</script>
+</body>
+</html>
