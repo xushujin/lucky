@@ -1,3 +1,6 @@
+// Copyright 2026 hatim
+// SPDX-License-Identifier: Apache-2.0
+
 /* 共享前端运行时 */
 (function () {
   const ICONS = {

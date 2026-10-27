@@ -1,0 +1,16 @@
+LUCKY 现场抽奖系统
+Copyright 2026 hatim
+
+本项目基于 Apache License 2.0 授权，许可证全文见 LICENSE 文件。
+
+--------------------------------------------------------------------
+第三方组件
+--------------------------------------------------------------------
+
+1. qrcode-generator
+   文件：public/assets/qrcode.js
+   Copyright (c) 2009 Kazuhiko Arase
+   许可证：MIT License
+   项目地址：https://github.com/kazuhikoarase/qrcode-generator
+
+   该文件保留其原始版权与许可声明，不受本项目 Apache License 2.0 的重新授权。

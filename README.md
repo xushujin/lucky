@@ -1,5 +1,7 @@
 # LUCKY · 现场抽奖系统
 
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 面向现场活动的抽奖系统：**参与者扫码验证 → 主持人控奖开奖 → 手机刮卡 → 大屏同步揭晓 → 结果留档导出**。
 
 适合年会、门店促销、发布会等需要「真实身份 + 现场仪式感 + 事后可查」的场景。
@@ -233,3 +235,27 @@ lucky/
 - 奖品核销码（扫码核销）与领奖状态跟踪（当前发奖用可打印的签字表登记）。
 
 数据模型已按「活动 / 参与者 / 奖项 / 轮次 / 发奖记录 / 操作日志」设计，扩展这些能力不需要重构。
+
+---
+
+## 十二、开源协议
+
+本项目采用 **Apache License 2.0** 授权，许可证全文见 [LICENSE](LICENSE)。
+
+Copyright 2026 hatim
+
+这意味着你可以自由地使用、修改、分发本项目（包括商业用途），但需要：
+
+- 保留原始版权声明、许可声明与 [NOTICE](NOTICE) 文件；
+- 在修改过的文件中注明已作变更；
+- 若原项目包含 NOTICE 文件，分发时需一并保留。
+
+Apache 2.0 同时提供明确的专利授权条款，但不提供任何担保。
+
+**第三方组件**
+
+| 组件 | 位置 | 许可证 |
+| --- | --- | --- |
+| [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | `public/assets/qrcode.js` | MIT（Copyright © 2009 Kazuhiko Arase） |
+
+该文件保留其原始版权与许可声明，不受本项目 Apache 2.0 重新授权，详见 [NOTICE](NOTICE)。

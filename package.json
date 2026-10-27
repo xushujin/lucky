@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "LUCKY 现场抽奖系统 · 扫码验证 + 主持人控奖 + 大屏同步 + 结果留档",
+  "license": "Apache-2.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
